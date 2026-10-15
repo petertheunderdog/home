@@ -2,7 +2,7 @@
  * 데이터는 구글 시트(Apps Script API)에 있고, 이 앱은 화면만 담당해요.
  * 열 때는 폰에 저장해 둔 마지막 화면을 바로 보여주고, 뒤에서 최신 데이터를 받아와요. */
 'use strict';
-const VERSION = '1.1.0';
+const VERSION = '1.1.1';
 const API = 'https://script.google.com/macros/s/AKfycbyxgtCCZJEixEnxgHr_g-XbBrFy4j7oqd0GTJ7GK29Z3okMu5Kk8JN_FBFjkBSBsMXkdg/exec';
 const SHEET_URL = 'https://docs.google.com/spreadsheets/d/1O9fVSgn2GEPlz2eURBd0J_kQzQH5vuwphPRmo1yAco4/edit';
 const GUBUN_ORDER = ['변동', '고정', '수입', '회사경비', '저축'];
@@ -208,7 +208,7 @@ function renderHome() {
 
   h += '<div class="card"><h3 class="sec">최근 거래 <button data-go="tx">전체 보기</button></h3>' +
     (recent.length ? '<div>' + recent.map(txRow).join('') + '</div>' : '<div class="empty">아직 거래가 없어요</div>') + '</div>';
-  h += '<div class="foot">카드 문자는 받는 즉시 기록돼요 · 0시부터 3시간마다 자동 동기화</div>';
+  h += '<div class="foot">카드 문자는 받는 즉시 기록돼요 · 1시간마다 자동 동기화</div>';
   $('pgHome').innerHTML = h;
 }
 function stat(l, v, s, cls) { return '<div class="stat"><div class="lab">' + l + '</div><div class="v num ' + cls + '">' + v + '</div><div class="s">' + esc(s) + '</div></div>'; }
@@ -292,8 +292,8 @@ function renderSet() {
   const when = (iso, none) => (iso ? ago(iso) : none);
   let h = '<div class="card"><h3 class="sec">데이터 동기화 <small>최신 업데이트: ' + esc(when(latestSync(sy), '-')) + '</small></h3>' +
     '<div class="srow"><span>' + dot(recent(sy.lastSms, 72)) + '실시간 수집 (카드 문자)</span><span class="r">' + when(sy.lastSms, '기록 없음') + '</span></div>' +
-    '<div class="srow"><span>' + dot(recent(sy.lastMac, 48)) + '보완 수집 (Mac)</span><span class="r">' + when(sy.lastMac, '기록 없음') + '</span></div>' +
-    '<div class="srow"><span>' + dot(sy.on) + '정기 동기화 (3시간마다)</span><span class="r">' + (sy.lastRun ? ago(sy.lastRun) : (sy.on ? '사용 중' : '꺼짐')) + '</span></div>' +
+    '<div class="srow"><span>' + dot(recent(sy.lastMac, 48)) + '보완 수집 (Mac · 3시간마다)</span><span class="r">' + when(sy.lastMac, '기록 없음') + '</span></div>' +
+    '<div class="srow"><span>' + dot(sy.on) + '정기 동기화 (1시간마다)</span><span class="r">' + (sy.lastRun ? ago(sy.lastRun) : (sy.on ? '사용 중' : '꺼짐')) + '</span></div>' +
     (sy.macFilled ? '<div class="srow"><span><span class="dot mid"></span>보완 수집으로 반영 (최근 7일)</span><span class="r">' + sy.macFilled + '건</span></div>' : '') +
     '</div>';
   h += '<div class="card"><h3 class="sec">' + esc(ymLabel(S.ym)) + ' 설정</h3>' +
