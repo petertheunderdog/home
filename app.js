@@ -2,13 +2,13 @@
  * 데이터는 구글 시트(Apps Script API)에 있고, 이 앱은 화면만 담당해요.
  * 열 때는 폰에 저장해 둔 마지막 화면을 바로 보여주고, 뒤에서 최신 데이터를 받아와요. */
 'use strict';
-const VERSION = '1.0.0';
+const VERSION = '1.0.1';
 const API = 'https://script.google.com/macros/s/AKfycbyxgtCCZJEixEnxgHr_g-XbBrFy4j7oqd0GTJ7GK29Z3okMu5Kk8JN_FBFjkBSBsMXkdg/exec';
 const SHEET_URL = 'https://docs.google.com/spreadsheets/d/1O9fVSgn2GEPlz2eURBd0J_kQzQH5vuwphPRmo1yAco4/edit';
 const GUBUN_ORDER = ['변동', '고정', '수입', '회사경비', '저축'];
 
 const S = {
-  key: localStorage.getItem('gb.key') || '',
+  key: localStorage.getItem('gb.key') || readCookie('gb_key'),
   user: localStorage.getItem('gb.user') || '',
   cfg: readJ('gb.cfg'),
   ym: null, data: null, tab: 'home',
@@ -17,6 +17,13 @@ const S = {
 };
 
 /* ────────── utils ────────── */
+/* 아이폰은 홈 화면 앱과 사파리의 저장 공간이 따로라서, 홈 화면에 추가할 때 함께 복사되는 쿠키에도 연결 코드를 남겨둬요 */
+function readCookie(n) { const m = document.cookie.match(new RegExp('(?:^|; )' + n + '=([^;]*)')); return m ? decodeURIComponent(m[1]) : ''; }
+function saveKey(k) {
+  localStorage.setItem('gb.key', k);
+  document.cookie = 'gb_key=' + encodeURIComponent(k) + '; max-age=31536000; path=/; Secure; SameSite=Lax';
+}
+function clearKey() { localStorage.removeItem('gb.key'); document.cookie = 'gb_key=; max-age=0; path=/; Secure; SameSite=Lax'; }
 function readJ(k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } }
 function writeJ(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* 저장 공간 부족 등은 무시 */ } }
 const $ = (id) => document.getElementById(id);
@@ -439,7 +446,7 @@ async function connect(k) {
   S.key = k;
   try {
     const d = await api('boot', S.ym);
-    localStorage.setItem('gb.key', k);
+    saveKey(k);
     S.cfg = d.config; writeJ('gb.cfg', d.config);
     $('connect').hidden = true;
     applyMonth(d.month);
@@ -448,7 +455,7 @@ async function connect(k) {
   finally { $('keyBtn').disabled = false; }
 }
 function disconnect(msg) {
-  localStorage.removeItem('gb.key'); localStorage.removeItem('gb.user');
+  clearKey(); localStorage.removeItem('gb.user');
   Object.keys(localStorage).filter((k) => k.indexOf('gb.m.') === 0 || k === 'gb.cfg').forEach((k) => localStorage.removeItem(k));
   S.key = ''; S.data = null; S.user = '';
   $('keyErr').textContent = msg || '';
@@ -458,10 +465,11 @@ function disconnect(msg) {
 /* ────────── 시작 ────────── */
 (function start() {
   const m = location.hash.match(/k=(gb_[0-9a-f]+)/);
-  if (m) { S.key = m[1]; localStorage.setItem('gb.key', m[1]); history.replaceState(null, '', location.pathname + location.search); }
+  if (m) { S.key = m[1]; saveKey(m[1]); history.replaceState(null, '', location.pathname + location.search); }
   S.ym = ymOf(new Date());
   bind();
   if (!S.key) { $('connect').hidden = false; render(); return; }
+  if (!readCookie('gb_key')) saveKey(S.key);
   S.data = readJ('gb.m.' + S.ym);
   render();
   boot();
