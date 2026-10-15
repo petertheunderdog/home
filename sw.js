@@ -1,6 +1,6 @@
 /* 앱 화면 파일을 폰에 저장해 두고 바로 열리게 해요. 가계부 데이터(API)는 저장하지 않아요. */
-const CACHE = 'gb-shell-v3';
-const SHELL = ['./', 'index.html', 'app.css?v=2', 'app.js?v=3', 'manifest.webmanifest',
+const CACHE = 'gb-shell-v4';
+const SHELL = ['./', 'index.html', 'app.css?v=2', 'app.js?v=4', 'manifest.webmanifest',
   'icon-192.png', 'icon-512.png', 'apple-touch-icon.png', 'favicon-64.png', 'logo-256.png'];
 
 self.addEventListener('install', (e) => {

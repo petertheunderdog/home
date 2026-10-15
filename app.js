@@ -2,7 +2,7 @@
  * 데이터는 구글 시트(Apps Script API)에 있고, 이 앱은 화면만 담당해요.
  * 열 때는 폰에 저장해 둔 마지막 화면을 바로 보여주고, 뒤에서 최신 데이터를 받아와요. */
 'use strict';
-const VERSION = '1.0.2';
+const VERSION = '1.0.3';
 const API = 'https://script.google.com/macros/s/AKfycbyxgtCCZJEixEnxgHr_g-XbBrFy4j7oqd0GTJ7GK29Z3okMu5Kk8JN_FBFjkBSBsMXkdg/exec';
 const SHEET_URL = 'https://docs.google.com/spreadsheets/d/1O9fVSgn2GEPlz2eURBd0J_kQzQH5vuwphPRmo1yAco4/edit';
 const GUBUN_ORDER = ['변동', '고정', '수입', '회사경비', '저축'];
@@ -139,17 +139,14 @@ function renderHeader() {
   $('addBtn').style.visibility = S.tab === 'set' ? 'hidden' : 'visible';
 }
 
+/* 가장 최근에 데이터가 들어온 시각: 실시간 수집 · 보완 수집 · 일일 정리 중 가장 늦은 것 */
+function latestSync(sy) { return sy ? [sy.lastSms, sy.lastMac, sy.lastRun].filter(Boolean).sort().pop() || '' : ''; }
 function renderStatus() {
   const el = $('status');
   if (S.err) { el.innerHTML = '<span class="bad">' + esc(S.err) + '</span>'; return; }
-  if (S.loading) { el.textContent = '최신 내역 불러오는 중…'; return; }
-  const sy = S.data && S.data.ov && S.data.ov.sync;
-  const parts = [];
-  const t = S.fetchedAt[S.ym];
-  parts.push(t ? '방금 업데이트' : (S.data ? '저장된 화면' : ''));
-  if (sy && sy.lastSms) parts.push('폰 수신 ' + ago(sy.lastSms));
-  if (sy && sy.macFilled) parts.push('<span class="warn">폰이 놓친 ' + sy.macFilled + '건 맥이 채움</span>');
-  el.innerHTML = parts.filter(Boolean).join(' · ');
+  if (S.loading) { el.textContent = '동기화 중…'; return; }
+  const t = latestSync(S.data && S.data.ov && S.data.ov.sync);
+  el.textContent = t ? '최신 업데이트: ' + ago(t) : '';
 }
 
 function renderSkeleton() {
@@ -290,11 +287,12 @@ function renderSet() {
   const lb = (S.cfg && S.cfg.saveLabels) || ['파킹통장', '배당 ETF'];
   const dot = (ok) => '<span class="dot' + (ok ? '' : ' off') + '"></span>';
   const recent = (iso, hrs) => iso && Date.now() - new Date(iso).getTime() < hrs * 3600e3;
-  let h = '<div class="card"><h3 class="sec">자동 수집</h3>' +
-    '<div class="srow"><span>' + dot(recent(sy.lastSms, 72)) + '폰 단축어</span><span class="r">' + (sy.lastSms ? ago(sy.lastSms) : '받은 문자 없음') + '</span></div>' +
-    '<div class="srow"><span>' + dot(recent(sy.lastMac, 48)) + '맥 보완</span><span class="r">' + (sy.lastMac ? ago(sy.lastMac) : '-') + '</span></div>' +
-    '<div class="srow"><span>' + dot(sy.on) + '새벽 6시 정리</span><span class="r">' + (sy.lastRun ? ago(sy.lastRun) : (sy.on ? '켜짐' : '꺼짐')) + '</span></div>' +
-    (sy.macFilled ? '<div class="srow"><span><span class="dot mid"></span>폰이 놓친 문자 (7일)</span><span class="r">' + sy.macFilled + '건 맥이 채움</span></div>' : '') +
+  const when = (iso, none) => (iso ? ago(iso) : none);
+  let h = '<div class="card"><h3 class="sec">데이터 동기화 <small>최신 업데이트: ' + esc(when(latestSync(sy), '-')) + '</small></h3>' +
+    '<div class="srow"><span>' + dot(recent(sy.lastSms, 72)) + '실시간 수집 (카드 문자)</span><span class="r">' + when(sy.lastSms, '기록 없음') + '</span></div>' +
+    '<div class="srow"><span>' + dot(recent(sy.lastMac, 48)) + '보완 수집 (Mac)</span><span class="r">' + when(sy.lastMac, '기록 없음') + '</span></div>' +
+    '<div class="srow"><span>' + dot(sy.on) + '일일 정리 (매일 06:00)</span><span class="r">' + (sy.lastRun ? ago(sy.lastRun) : (sy.on ? '사용 중' : '꺼짐')) + '</span></div>' +
+    (sy.macFilled ? '<div class="srow"><span><span class="dot mid"></span>보완 수집으로 반영 (최근 7일)</span><span class="r">' + sy.macFilled + '건</span></div>' : '') +
     '</div>';
   h += '<div class="card"><h3 class="sec">' + esc(ymLabel(S.ym)) + ' 설정</h3>' +
     '<div class="srow link" data-set="budget"><span>생활비 예산</span><span class="r num">' + (d.budget ? won(d.budget) : '정하기') + '</span></div>' +
