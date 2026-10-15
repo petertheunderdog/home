@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>우리집 가계부</title>
+<meta name="description" content="우리집 가계부 · 자산 관리">
+<meta name="theme-color" content="#F2F4F6" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#101113" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="가계부">
+<meta name="robots" content="noindex, nofollow">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" href="favicon-64.png">
+<link rel="stylesheet" href="app.css?v=1">
+</head>
+<body>
+<div id="app">
+  <header id="hdr">
+    <div class="hl">
+      <button class="nav" id="prev" aria-label="이전 달">‹</button>
+      <h1 id="title">가계부</h1>
+      <button class="nav" id="next" aria-label="다음 달">›</button>
+    </div>
+    <div class="hr">
+      <button class="ic" id="refresh" aria-label="새로고침"><span>↻</span></button>
+      <button class="ic solid" id="addBtn" aria-label="거래 추가"><span>+</span></button>
+    </div>
+  </header>
+  <div id="status" class="status"></div>
+  <main id="main">
+    <section class="pg on" data-p="home" id="pgHome"></section>
+    <section class="pg" data-p="tx" id="pgTx">
+      <div class="search"><input id="q" type="search" placeholder="가맹점, 내용, 금액 검색" autocomplete="off"></div>
+      <div class="chips" id="txChips"></div>
+      <div id="txList"></div>
+    </section>
+    <section class="pg" data-p="asset" id="pgAsset"></section>
+    <section class="pg" data-p="set" id="pgSet"></section>
+  </main>
+  <nav id="tabs">
+    <button class="tab on" data-t="home"><i></i>홈</button>
+    <button class="tab" data-t="tx"><i></i>거래</button>
+    <button class="tab" data-t="asset"><i></i>자산</button>
+    <button class="tab" data-t="set"><i></i>설정</button>
+  </nav>
+</div>
+
+<div id="connect" hidden>
+  <div class="cbox">
+    <img class="logo" src="logo-256.png" alt="">
+    <h2>우리집 가계부</h2>
+    <p>처음 한 번만 연결 코드를 넣어주세요.</p>
+    <input id="keyIn" type="text" placeholder="연결 코드 (gb_로 시작)" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <button class="btn primary" id="keyBtn">연결하기</button>
+    <div class="err" id="keyErr"></div>
+  </div>
+</div>
+
+<div id="scrim" hidden></div>
+<div id="sheet" aria-modal="true" role="dialog"></div>
+<div id="toast"></div>
+
+<script src="app.js?v=1"></script>
+</body>
+</html>
