@@ -1,7 +1,7 @@
 {
-  "name": "우리집 가계부",
-  "short_name": "가계부",
-  "description": "우리집 가계부 · 자산 관리",
+  "name": "차곡",
+  "short_name": "차곡",
+  "description": "차곡 · 우리집 가계부와 자산 관리",
   "lang": "ko",
   "start_url": "./",
   "scope": "./",

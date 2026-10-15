@@ -174,6 +174,15 @@ svg.spark{display:block;width:100%;height:70px;margin:4px 0 2px}
 .cbox input{width:100%;border:0;border-radius:12px;background:var(--card);padding:14px;font-size:15px;outline:none;margin-bottom:10px;text-align:center}
 .cbox .btn{width:100%;padding:14px 0;font-size:15px}
 .cbox .err{color:var(--bad);font-size:13px;margin-top:10px;min-height:18px}
+.gbtn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;height:50px;border-radius:12px;border:1px solid #dadce0;background:#fff;color:#1f1f1f;font-size:15px;font-weight:600;font-family:inherit;cursor:pointer}
+.gbtn:active{opacity:.85}
+.gbtn[disabled]{opacity:.6}
+@media (prefers-color-scheme:dark){.gbtn{background:#131314;border-color:#8e918f;color:#e3e3e3}}
+.cbox .cnote{margin:6px 0 0;font-size:12px;color:var(--ink3,var(--ink2))}
+.cbox .alt{margin-top:28px;font-size:13px;color:var(--ink2)}
+.cbox .alt summary{cursor:pointer;list-style:none;text-decoration:underline;text-underline-offset:3px}
+.cbox .alt summary::-webkit-details-marker{display:none}
+.cbox .alt[open] summary{margin-bottom:12px}
 .skel{background:linear-gradient(90deg,var(--card2),var(--line),var(--card2));background-size:200% 100%;animation:sk 1.2s infinite;border-radius:8px;height:16px;margin:8px 0}
 @keyframes sk{to{background-position:-200% 0}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}

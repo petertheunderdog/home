@@ -1,11 +1,13 @@
-/* 우리집 가계부 · PWA
+/* 차곡 · 우리집 가계부 PWA
  * 데이터는 구글 시트(Apps Script API)에 있고, 이 앱은 화면만 담당해요.
  * 열 때는 폰에 저장해 둔 마지막 화면을 바로 보여주고, 뒤에서 최신 데이터를 받아와요. */
 'use strict';
-const VERSION = '1.0.4';
+const VERSION = '1.1.0';
 const API = 'https://script.google.com/macros/s/AKfycbyxgtCCZJEixEnxgHr_g-XbBrFy4j7oqd0GTJ7GK29Z3okMu5Kk8JN_FBFjkBSBsMXkdg/exec';
 const SHEET_URL = 'https://docs.google.com/spreadsheets/d/1O9fVSgn2GEPlz2eURBd0J_kQzQH5vuwphPRmo1yAco4/edit';
 const GUBUN_ORDER = ['변동', '고정', '수입', '회사경비', '저축'];
+const GOOGLE_CLIENT_ID = '1022673988298-t7kv7qqbld5fgovvujputd0uhuef2l7f.apps.googleusercontent.com';
+const REDIRECT_URI = 'https://petertheunderdog.github.io/home/';
 
 const S = {
   key: localStorage.getItem('gb.key') || readCookie('gb_key'),
@@ -62,7 +64,7 @@ async function api(fn, ...args) {
       body: JSON.stringify({ action: 'app', key: S.key, fn, args }), signal: ctl.signal, redirect: 'follow' });
     const j = await r.json();
     if (!j.ok) {
-      if (j.error === 'unauthorized') { disconnect('연결 코드가 맞지 않아요. 다시 넣어주세요.'); }
+      if (j.error === 'unauthorized') { disconnect('다시 로그인해 주세요.'); }
       throw new Error(j.error || '서버 오류');
     }
     if (j.user && j.user !== S.user) { S.user = j.user; localStorage.setItem('gb.user', j.user); }
@@ -302,8 +304,8 @@ function renderSet() {
     '<a class="srow link" href="' + SHEET_URL + '" target="_blank" rel="noopener" style="color:inherit;text-decoration:none"><span>구글 시트 열기</span><span class="r">원본 데이터</span></a></div>';
   h += '<div class="card"><h3 class="sec">연결</h3>' +
     '<div class="srow"><span>로그인</span><span class="r">' + esc(S.user || '-') + '</span></div>' +
-    '<div class="srow link" data-set="logout"><span style="color:var(--bad)">이 기기 연결 해제</span><span class="r"></span></div></div>';
-  h += '<div class="foot">우리집 가계부 v' + VERSION + '</div>';
+    '<div class="srow link" data-set="logout"><span style="color:var(--bad)">로그아웃</span><span class="r"></span></div></div>';
+  h += '<div class="foot">차곡 v' + VERSION + '</div>';
   $('pgSet').innerHTML = h;
 }
 
@@ -426,21 +428,23 @@ function bind() {
     if (el.dataset.set === 'budget') numSheet(ymLabel(S.ym) + ' 생활비 예산', S.data.budget, '변동지출 기준이에요', (v) => write('setBudget', [S.ym, v], '저장했어요'));
     if (el.dataset.set === 'save') saveSheet();
     if (el.dataset.set === 'carry') { const d = await write('carryFixed', [S.ym]); if (d && d.carried) toast(d.carried.count ? d.carried.from + ' 고정지출 ' + d.carried.count + '건을 가져왔어요' : '가져올 새 항목이 없어요'); }
-    if (el.dataset.set === 'logout') { if (confirm('이 기기에서 연결을 해제할까요? 다시 쓰려면 연결 코드가 필요해요.')) disconnect(''); }
+    if (el.dataset.set === 'logout') { if (confirm('이 기기에서 로그아웃할까요? 다시 쓰려면 Google 계정으로 로그인하면 돼요.')) disconnect(''); }
   });
   document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && !S.key) { $('gBtn').disabled = false; claimLogin(); }
     if (document.visibilityState === 'visible' && S.key && S.ym && (!S.fetchedAt[S.ym] || Date.now() - S.fetchedAt[S.ym] > 60000)) loadMonth(S.ym, true);
   });
   window.addEventListener('online', () => { S.err = ''; loadMonth(S.ym, true); });
+  $('gBtn').onclick = googleLogin;
   $('keyBtn').onclick = () => connect($('keyIn').value);
   $('keyIn').onkeydown = (e) => { if (e.key === 'Enter') connect($('keyIn').value); };
 }
 
 /* ────────── 연결 ────────── */
-async function connect(k) {
+async function connect(k, how) {
   k = String(k || '').trim();
   if (!/^gb_[0-9a-f]{20,}$/.test(k)) { $('keyErr').textContent = '연결 코드 형식이 아니에요.'; return; }
-  $('keyBtn').disabled = true; $('keyErr').textContent = '';
+  $('keyBtn').disabled = true; $('gBtn').disabled = true; $('keyErr').textContent = '';
   S.key = k;
   try {
     const d = await api('boot', S.ym);
@@ -448,9 +452,62 @@ async function connect(k) {
     S.cfg = d.config; writeJ('gb.cfg', d.config);
     $('connect').hidden = true;
     applyMonth(d.month);
-    toast('연결됐어요');
+    toast(how === 'google' ? (S.user ? S.user + ' 계정으로 로그인했어요' : '로그인했어요') : '연결됐어요');
   } catch (e) { $('keyErr').textContent = e.message === 'unauthorized' ? '연결 코드가 맞지 않아요.' : e.message; S.key = ''; }
-  finally { $('keyBtn').disabled = false; }
+  finally { $('keyBtn').disabled = false; $('gBtn').disabled = false; }
+}
+
+/* ────────── Google 로그인 ──────────
+   구글 로그인 화면으로 갔다가 돌아오면 주소 뒤(#)에 로그인 증명(id_token)이 붙어 와요.
+   서버가 그걸 구글에 다시 확인하고 허용된 계정이면 연결 코드를 줘요.
+   아이폰 홈 화면 앱에서 로그인이 사파리로 넘어가 끝나도, 앱으로 돌아오면 state 값으로 결과를 찾아와요. */
+function rnd16() { return Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => ('0' + b.toString(16)).slice(-2)).join(''); }
+function pendingLogin() { const o = readJ('gb.oauth'); return o && Date.now() - o.t < 10 * 60000 ? o : null; }
+function googleLogin() {
+  const o = { st: rnd16(), nonce: rnd16(), t: Date.now() };
+  writeJ('gb.oauth', o);
+  const q = new URLSearchParams({ client_id: GOOGLE_CLIENT_ID, redirect_uri: REDIRECT_URI, response_type: 'id_token',
+    scope: 'openid email', nonce: o.nonce, state: o.st, prompt: 'select_account' });
+  $('gBtn').disabled = true;
+  location.href = 'https://accounts.google.com/o/oauth2/v2/auth?' + q.toString();
+}
+async function post(body) {
+  const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body), redirect: 'follow' });
+  return r.json();
+}
+async function finishLogin(hp) {
+  const mine = readJ('gb.oauth');
+  const st = hp.get('state') || '';
+  const err = hp.get('error');
+  $('connect').hidden = false;
+  if (err) { localStorage.removeItem('gb.oauth'); $('keyErr').textContent = err === 'access_denied' ? '로그인을 취소했어요.' : '로그인하지 못했어요 (' + err + ')'; return; }
+  if (mine && mine.st !== st) { $('keyErr').textContent = '로그인 정보가 맞지 않아요. 다시 시도해 주세요.'; return; }
+  $('gBtn').disabled = true; $('keyErr').textContent = '로그인 확인 중…';
+  try {
+    const j = await post({ action: 'login', idToken: hp.get('id_token'), nonce: mine ? mine.nonce : '', state: st });
+    localStorage.removeItem('gb.oauth');
+    if (!j.ok) {
+      $('keyErr').textContent = j.error === 'not_allowed' ? (j.email || '이 계정') + '은 등록된 계정이 아니에요.' : '로그인을 확인하지 못했어요. 다시 시도해 주세요.';
+      return;
+    }
+    S.user = j.user; localStorage.setItem('gb.user', j.user);
+    await connect(j.key, 'google');
+    // 홈 화면 앱에서 시작한 로그인이 사파리에서 끝난 경우 안내
+    if (!mine && !matchMedia('(display-mode: standalone)').matches && !navigator.standalone) toast('홈 화면 앱으로 돌아가면 자동으로 연결돼요');
+  } catch (e) { $('keyErr').textContent = '연결이 원활하지 않아요. 다시 시도해 주세요.'; }
+  finally { $('gBtn').disabled = false; }
+}
+/* 사파리에서 끝난 로그인 결과 찾아오기 */
+let claimBusy = false;
+async function claimLogin() {
+  const o = pendingLogin();
+  if (!o || S.key || claimBusy) return;
+  claimBusy = true;
+  try {
+    const j = await post({ action: 'claim', state: o.st });
+    if (j.ok) { localStorage.removeItem('gb.oauth'); S.user = j.user; localStorage.setItem('gb.user', j.user); await connect(j.key, 'google'); }
+  } catch (e) { /* 다음에 다시 시도 */ }
+  finally { claimBusy = false; }
 }
 function disconnect(msg) {
   clearKey(); localStorage.removeItem('gb.user');
@@ -464,9 +521,17 @@ function disconnect(msg) {
 (function start() {
   const m = location.hash.match(/k=(gb_[0-9a-f]+)/);
   if (m) { S.key = m[1]; saveKey(m[1]); history.replaceState(null, '', location.pathname + location.search); }
+  const hp = new URLSearchParams(location.hash.slice(1));
+  const oauth = hp.has('id_token') || hp.has('error');
+  if (oauth) history.replaceState(null, '', location.pathname + location.search);
   S.ym = ymOf(new Date());
   bind();
-  if (!S.key) { $('connect').hidden = false; render(); return; }
+  if (oauth && hp.get('state')) { render(); finishLogin(hp); return; }
+  if (!S.key) {
+    $('connect').hidden = false; render();
+    if (pendingLogin()) { claimLogin(); setInterval(() => { if (!S.key && document.visibilityState === 'visible') claimLogin(); }, 4000); }
+    return;
+  }
   if (!readCookie('gb_key')) saveKey(S.key);
   S.data = readJ('gb.m.' + S.ym);
   render();
