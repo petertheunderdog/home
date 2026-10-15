@@ -2,7 +2,7 @@
  * 데이터는 구글 시트(Apps Script API)에 있고, 이 앱은 화면만 담당해요.
  * 열 때는 폰에 저장해 둔 마지막 화면을 바로 보여주고, 뒤에서 최신 데이터를 받아와요. */
 'use strict';
-const VERSION = '1.0.3';
+const VERSION = '1.0.4';
 const API = 'https://script.google.com/macros/s/AKfycbyxgtCCZJEixEnxgHr_g-XbBrFy4j7oqd0GTJ7GK29Z3okMu5Kk8JN_FBFjkBSBsMXkdg/exec';
 const SHEET_URL = 'https://docs.google.com/spreadsheets/d/1O9fVSgn2GEPlz2eURBd0J_kQzQH5vuwphPRmo1yAco4/edit';
 const GUBUN_ORDER = ['변동', '고정', '수입', '회사경비', '저축'];
@@ -206,7 +206,7 @@ function renderHome() {
 
   h += '<div class="card"><h3 class="sec">최근 거래 <button data-go="tx">전체 보기</button></h3>' +
     (recent.length ? '<div>' + recent.map(txRow).join('') + '</div>' : '<div class="empty">아직 거래가 없어요</div>') + '</div>';
-  h += '<div class="foot">카드·은행 문자는 받는 즉시 기록돼요 · 매일 새벽 6시 자동 정리</div>';
+  h += '<div class="foot">카드 문자는 받는 즉시 기록돼요 · 0시부터 3시간마다 자동 동기화</div>';
   $('pgHome').innerHTML = h;
 }
 function stat(l, v, s, cls) { return '<div class="stat"><div class="lab">' + l + '</div><div class="v num ' + cls + '">' + v + '</div><div class="s">' + esc(s) + '</div></div>'; }
@@ -267,11 +267,11 @@ function renderAsset() {
     '<div class="sub">총자산 <b class="num">' + man(t.asset) + '</b> · 총부채 <b class="num">' + man(t.debt) + '</b></div></div>';
   h += '<div class="card"><h3 class="sec">자산 <small class="num">' + man(t.asset) + '</small></h3>' + (assets.map(row).join('') || '<div class="empty">없음</div>') + '</div>';
   h += '<div class="card"><h3 class="sec">부채 <small class="num">' + man(t.debt) + '</small></h3>' + (debts.map(row).join('') || '<div class="empty">없음</div>') + '</div>';
-  h += '<div class="foot">금액을 누르면 고칠 수 있어요 · 매일 새벽 순자산이 기록돼요</div>';
+  h += '<div class="foot">금액을 누르면 고칠 수 있어요 · 순자산은 하루 단위로 기록돼요</div>';
   $('pgAsset').innerHTML = h;
 }
 function spark(h) {
-  if (h.length < 2) return '<div class="sub">매일 새벽 기록이 쌓이면 추이가 보여요</div>';
+  if (h.length < 2) return '<div class="sub">기록이 쌓이면 추이가 보여요</div>';
   const W = 300, H = 70, p = 4; let mn = Infinity, mx = -Infinity;
   h.forEach((x) => { mn = Math.min(mn, x.net); mx = Math.max(mx, x.net); });
   if (mx === mn) { mx += 1; mn -= 1; }
@@ -291,7 +291,7 @@ function renderSet() {
   let h = '<div class="card"><h3 class="sec">데이터 동기화 <small>최신 업데이트: ' + esc(when(latestSync(sy), '-')) + '</small></h3>' +
     '<div class="srow"><span>' + dot(recent(sy.lastSms, 72)) + '실시간 수집 (카드 문자)</span><span class="r">' + when(sy.lastSms, '기록 없음') + '</span></div>' +
     '<div class="srow"><span>' + dot(recent(sy.lastMac, 48)) + '보완 수집 (Mac)</span><span class="r">' + when(sy.lastMac, '기록 없음') + '</span></div>' +
-    '<div class="srow"><span>' + dot(sy.on) + '일일 정리 (매일 06:00)</span><span class="r">' + (sy.lastRun ? ago(sy.lastRun) : (sy.on ? '사용 중' : '꺼짐')) + '</span></div>' +
+    '<div class="srow"><span>' + dot(sy.on) + '정기 동기화 (3시간마다)</span><span class="r">' + (sy.lastRun ? ago(sy.lastRun) : (sy.on ? '사용 중' : '꺼짐')) + '</span></div>' +
     (sy.macFilled ? '<div class="srow"><span><span class="dot mid"></span>보완 수집으로 반영 (최근 7일)</span><span class="r">' + sy.macFilled + '건</span></div>' : '') +
     '</div>';
   h += '<div class="card"><h3 class="sec">' + esc(ymLabel(S.ym)) + ' 설정</h3>' +
