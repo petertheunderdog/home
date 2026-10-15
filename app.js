@@ -2,7 +2,7 @@
  * 데이터는 구글 시트(Apps Script API)에 있고, 이 앱은 화면만 담당해요.
  * 열 때는 폰에 저장해 둔 마지막 화면을 바로 보여주고, 뒤에서 최신 데이터를 받아와요. */
 'use strict';
-const VERSION = '1.0.1';
+const VERSION = '1.0.2';
 const API = 'https://script.google.com/macros/s/AKfycbyxgtCCZJEixEnxgHr_g-XbBrFy4j7oqd0GTJ7GK29Z3okMu5Kk8JN_FBFjkBSBsMXkdg/exec';
 const SHEET_URL = 'https://docs.google.com/spreadsheets/d/1O9fVSgn2GEPlz2eURBd0J_kQzQH5vuwphPRmo1yAco4/edit';
 const GUBUN_ORDER = ['변동', '고정', '수입', '회사경비', '저축'];
