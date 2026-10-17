@@ -2,7 +2,7 @@
  * 데이터는 구글 시트(Apps Script API)에 있고, 이 앱은 화면만 담당해요.
  * 열 때는 폰에 저장해 둔 마지막 화면을 바로 보여주고, 뒤에서 최신 데이터를 받아와요. */
 'use strict';
-const VERSION = '1.3.0';
+const VERSION = '1.3.1';
 const API = 'https://script.google.com/macros/s/AKfycbyxgtCCZJEixEnxgHr_g-XbBrFy4j7oqd0GTJ7GK29Z3okMu5Kk8JN_FBFjkBSBsMXkdg/exec';
 const SHEET_URL = 'https://docs.google.com/spreadsheets/d/1O9fVSgn2GEPlz2eURBd0J_kQzQH5vuwphPRmo1yAco4/edit';
 const GUBUN_ORDER = ['변동', '고정', '수입', '회사경비', '저축'];
@@ -455,8 +455,8 @@ function tripDates(t) {
 }
 function tripCard(trips) {
   let h = '<div class="card"><h3 class="sec">여행 <button data-tripadd="1">+ 여행 추가</button></h3>';
-  if (!trips.length) return h + '<div class="empty">여행을 추가하면 여행지별로 쓴 돈을 모아볼 수 있어요</div></div>';
-  return h + trips.map((x) => '<div class="trip" data-trip="' + esc(x.name) + '"><div class="l"><div class="nm">' + esc(x.name) + '</div>' +
+  if (!trips.length) return h + '<div class="empty">여행을 다녀오면 결제 기록으로 자동으로 찾아서 만들어 줘요</div></div>';
+  return h + trips.map((x) => '<div class="trip" data-trip="' + esc(x.name) + '"><div class="l"><div class="nm">' + esc(x.name) + (x.auto ? '<span class="tag nw">자동</span>' : '') + '</div>' +
     '<div class="m">' + esc(tripDates(x)) + ' · ' + x.count + '건</div></div><div class="a num">' + man(x.total) + '</div></div>').join('') + '</div>';
 }
 async function tripSheet(name) {
@@ -469,6 +469,9 @@ async function tripSheet(name) {
     '<div class="big num">' + won(d.total) + '</div>' +
     '<div class="sub" style="margin-top:-6px">' + d.rows.length + '건' + (d.before ? ' · 출발 전에 미리 낸 돈 ' + man(d.before) + ' 포함' : '') + (d.company ? ' · 회사경비 ' + man(d.company) + ' 제외' : '') + '</div>' +
     (d.cats.length ? '<div class="fl">어디에 썼나</div>' + d.cats.map((c) => '<div class="cat"><span>' + esc(c.name) + '</span><div class="b"><div style="width:' + Math.max(0, c.amt / max * 100) + '%"></div></div><span class="v num">' + man(c.amt) + '</span></div>').join('') : '') +
+    (t.auto ? '<div class="tauto"><div>결제 기록으로 자동으로 찾은 여행이에요. 맞나요?</div><div class="acts"><button class="btn" id="tNo">아니에요</button><button class="btn primary" id="tYes">맞아요</button></div></div>' : '') +
+    ((d.suggest || []).length ? '<div class="fl">미리 낸 돈일 수 있어요 <small>항공 · 숙소 예약 · 눌러서 추가</small></div><div id="tSug">' +
+      d.suggest.map((r) => '<div class="tx" data-srow="' + r.row + '"><div class="l"><div class="nm">' + esc(r.memo || r.cat || '-') + '</div><div class="m">' + esc(r.iso.slice(5)) + ' · ' + esc(r.cat) + (r.pay ? ' · ' + esc(r.pay) : '') + '</div></div><div class="a num">+ ' + num(r.amt) + '</div></div>').join('') + '</div>' : '') +
     '<div class="fl">거래 <small>눌러서 이 여행에서 빼기</small></div><div id="tRows">' +
     (d.rows.length ? d.rows.map((r) => '<div class="tx" data-trow="' + r.row + '" data-tym="' + r.ym + '"><div class="l"><div class="nm">' + esc(r.memo || r.cat || '-') + '</div>' +
       '<div class="m">' + esc(r.date) + ' · ' + esc(r.cat) + (r.pay ? ' · ' + esc(r.pay) : '') + (r.gubun !== '변동' ? ' · ' + esc(r.gubun) : '') + '</div></div><div class="a num' + (r.gubun === '회사경비' ? ' co' : '') + '">' + num(r.amt) + '</div></div>').join('')
@@ -478,6 +481,15 @@ async function tripSheet(name) {
   openSheet(html);
   $('tClose').onclick = closeSheet;
   $('tEdit').onclick = () => tripEditSheet(t);
+  if ($('tYes')) $('tYes').onclick = async () => { try { await api('confirmTrip', t.name); toast('확인했어요'); loadMonth(S.ym, true); tripSheet(t.name); } catch (e) { toast(e.message); } };
+  if ($('tNo')) $('tNo').onclick = async () => {
+    if (!confirm('이 여행을 지울까요? 거래는 그대로 남고, 같은 기간은 다시 자동으로 만들지 않아요.')) return;
+    try { await api('deleteTrip', t.name); closeSheet(); toast('지웠어요'); loadMonth(S.ym, true); } catch (e) { toast(e.message); }
+  };
+  if ($('tSug')) $('tSug').onclick = async (e) => {
+    const r = e.target.closest('[data-srow]'); if (!r) return;
+    try { await api('addTripRows', t.name, [Number(r.dataset.srow)]); toast('여행에 추가했어요'); loadMonth(S.ym, true); tripSheet(t.name); } catch (err) { toast(err.message); }
+  };
   $('tRows').onclick = async (e) => {
     const r = e.target.closest('[data-trow]'); if (!r) return;
     if (!confirm('이 거래를 \'' + t.name + '\'에서 뺄까요? 거래 자체는 그대로 남아요.')) return;
