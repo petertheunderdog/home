@@ -359,3 +359,58 @@ svg.bsp{display:block;width:100%;height:44px;margin-top:10px}
 .sub2{font-size:12px;color:var(--ink3);margin-top:3px;line-height:1.5}
 .sub{line-height:1.5}
 .ts{word-break:keep-all}
+
+/* ── v1.4 아기 앨범 ── */
+.albbar{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px}
+.seg.mini{flex:0 0 auto;width:132px}
+.seg.mini button{padding:7px 0;font-size:13px}
+.albempty{line-height:1.7}
+.albempty small{color:var(--ink3)}
+.calcard{padding:12px 10px 10px}
+.calhd{display:flex;justify-content:space-between;align-items:center;padding:0 4px 8px}
+.calhd b{font-size:16px;display:block;text-align:center}
+.calhd small{display:block;text-align:center;font-size:11.5px;color:var(--ink3)}
+.wk{display:grid;grid-template-columns:repeat(7,1fr);font-size:11px;color:var(--ink3);text-align:center;margin-bottom:4px}
+.wk .sun{color:var(--bad)}.wk .sat{color:var(--accent)}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+.cd{position:relative;aspect-ratio:1;border-radius:8px;background:var(--card2);overflow:hidden}
+.cd.empty{background:none}
+.cd .dn{position:absolute;left:4px;top:3px;font-size:11px;color:var(--ink2);font-weight:600;z-index:2}
+.cd.ph{cursor:pointer}
+.cd.ph .dn{color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.6)}
+.cd.today{box-shadow:inset 0 0 0 2px var(--accent)}
+.cd.sel{box-shadow:inset 0 0 0 3px var(--accent)}
+.cd .pc{position:absolute;right:3px;bottom:3px;z-index:2;font-size:10px;background:rgba(0,0,0,.55);color:#fff;border-radius:6px;padding:0 5px;line-height:16px}
+.th{position:absolute;inset:0;background:var(--line) center/cover no-repeat;display:block}
+.pgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+.albgrid{padding:8px}
+.pt{position:relative;aspect-ratio:1;border-radius:8px;overflow:hidden;background:var(--card2)}
+.pt .pin{position:absolute;right:4px;top:3px;color:#FFD43B;font-size:14px;text-shadow:0 1px 2px rgba(0,0,0,.5);z-index:2}
+.hpics{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px}
+.hp{position:relative;aspect-ratio:4/3;border-radius:14px;overflow:hidden;background:var(--card)}
+.hp span{position:absolute;left:6px;bottom:5px;z-index:2;font-size:10.5px;font-weight:600;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+.hpempty .hn{font-size:12.5px;color:var(--ink2)}
+.pview{position:relative;margin:-2px -18px 10px;background:#000;min-height:200px;display:flex;align-items:center;justify-content:center}
+.pview img{max-width:100%;max-height:58vh;display:block}
+.pvload{position:absolute;bottom:8px;right:10px;font-size:11px;color:#ddd;background:rgba(0,0,0,.5);padding:2px 8px;border-radius:8px}
+.pvmeta{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-weight:700}
+.pvmeta small{font-weight:500;color:var(--ink3);font-size:12px}
+textarea.inp{resize:vertical;font-family:inherit;line-height:1.5}
+
+/* 알림 종 */
+.ic.bell{position:relative}
+.ic.bell b{position:absolute;top:-3px;right:-4px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--bad);color:#fff;font-size:10.5px;font-weight:700;line-height:18px;text-align:center;display:none;border:2px solid var(--bg)}
+.ic.bell.has b{display:block}
+.bl{display:flex;flex-direction:column}
+.bli{display:flex;align-items:center;gap:12px;padding:12px 2px;border-top:1px solid var(--line);text-align:left;width:100%}
+.bli:first-child{border-top:0}
+.bli .bi{flex:none;width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;background:var(--card2);color:var(--ink2)}
+.bli.rev .bi{background:var(--co-soft);color:var(--co)}
+.bli.memo .bi{background:#FFE8F0;color:#D6336C}
+.bli.photo .bi,.bli.event .bi{background:var(--accent-soft);color:var(--accent)}
+.bli.price .bi{background:var(--good-soft);color:var(--good)}
+.bli .bt{flex:1;min-width:0}
+.bli .bt b{display:block;font-size:14.5px}
+.bli .bt small{display:block;font-size:12.5px;color:var(--ink3);margin-top:1px;word-break:keep-all}
+/* 달력 선택일 테두리를 사진 위에 */
+.cd.sel{box-shadow:none;outline:3px solid var(--accent);outline-offset:-3px}

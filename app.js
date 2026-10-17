@@ -2,7 +2,7 @@
  * 데이터는 구글 시트(Apps Script API)에 있고, 이 앱은 화면만 담당해요.
  * 열 때는 폰에 저장해 둔 마지막 화면을 바로 보여주고, 뒤에서 최신 데이터를 받아와요. */
 'use strict';
-const VERSION = '1.3.3';
+const VERSION = '1.4.0';
 const API = 'https://script.google.com/macros/s/AKfycbyxgtCCZJEixEnxgHr_g-XbBrFy4j7oqd0GTJ7GK29Z3okMu5Kk8JN_FBFjkBSBsMXkdg/exec';
 const SHEET_URL = 'https://docs.google.com/spreadsheets/d/1O9fVSgn2GEPlz2eURBd0J_kQzQH5vuwphPRmo1yAco4/edit';
 const GUBUN_ORDER = ['변동', '고정', '수입', '회사경비', '저축'];
@@ -15,6 +15,7 @@ const S = {
   cfg: readJ('gb.cfg'),
   ym: null, data: null, tab: 'home', led: 'sum',
   baby: readJ('gb.baby'), babyAt: 0, bview: 'list', bcat: 'all', bopen: {},
+  alb: readJ('gb.alb'), albAt: 0, thumbs: {}, albMode: 'cal', albYm: null, albDay: null, albLimit: 60,
   filter: 'all', cat: '', q: '',
   loading: 0, fetchedAt: {}, err: ''
 };
@@ -115,6 +116,7 @@ function applyMonth(d) {
 async function boot() {
   const ym = S.ym;
   loadBaby(true);
+  loadAlbum(true);
   setLoading(true);
   try {
     const d = await api('boot', ym);
@@ -153,6 +155,7 @@ function renderHeader() {
   $('title').textContent = monthTab ? ymLabel(S.ym) + ' 가계부' : ({ home: '차곡', asset: '자산', baby: '출산준비', set: '설정' }[S.tab] || '');
   $('addBtn').style.visibility = S.tab === 'set' || S.tab === 'asset' ? 'hidden' : 'visible';
   $('addBtn').setAttribute('aria-label', S.tab === 'baby' ? '메모 · 살 것 추가' : '거래 추가');
+  renderBell();
 }
 
 /* 가장 최근에 데이터가 들어온 시각: 실시간 수집 · 보완 수집 · 일일 정리 중 가장 늦은 것 */
@@ -248,6 +251,7 @@ function renderHome() {
   // 원칙: 홈은 한 화면 안에서 '지금 상태 + 어디로 갈지'만. 자세한 건 각 탭에서.
   const d = S.data, ov = d.ov || {};
   let h = '';
+  h += homePhotos();
   const due = S.baby ? bDue() : null;
   if (due) h += '<div class="strip" data-go="baby">' + IC.baby + '<span>짹짹이 만나기까지 <b class="num">' + (due.left > 0 ? 'D-' + due.left : due.left === 0 ? 'D-day' : 'D+' + (-due.left)) + '</b></span>' + (due.left > 0 && due.w >= 0 ? '<small>임신 ' + due.w + '주 ' + due.d + '일</small>' : '') + '</div>';
   const budget = d.budget || 0, v = d.variable || 0, pct = budget ? v / budget : 0;
@@ -563,7 +567,7 @@ async function loadBaby(force) {
 }
 function applyBaby(d) {
   if (!d || !d.items) return;
-  S.baby = d; S.babyAt = Date.now(); writeJ('gb.baby', d);
+  S.baby = d; S.babyAt = Date.now(); writeJ('gb.baby', d); renderBell();
   if (S.tab === 'baby' || S.tab === 'home') render();
 }
 async function bWrite(fn, args, okMsg) {
@@ -671,12 +675,15 @@ function renderBaby() {
     '<div><div class="lab">후보</div><div class="v num">' + sm.cand.length + '개</div><div class="s">비교 중</div></div></div></div>';
 
   h += '<div class="seg pseg" id="bSeg"><button data-bview="list" class="' + (S.bview === 'list' ? 'on' : '') + '">살 것 목록</button>' +
-    '<button data-bview="memo" class="' + (S.bview === 'memo' ? 'on' : '') + '">아이디어·메모' + (openM.length ? ' <b class="cnt">' + openM.length + '</b>' : '') + '</button></div>';
+    '<button data-bview="memo" class="' + (S.bview === 'memo' ? 'on' : '') + '">메모' + (openM.length ? ' <b class="cnt">' + openM.length + '</b>' : '') + '</button>' +
+    '<button data-bview="album" class="' + (S.bview === 'album' ? 'on' : '') + '">앨범</button></div>';
 
   if (S.bview === 'memo') h += bMemoView(memos);
+  else if (S.bview === 'album') h += albumView();
   else h += bListView(sm.items, ev);
   const up = S.baby.meta && S.baby.meta.updated;
-  h += '<div class="foot">가격은 매일 오전 9시에 맥이 확인해요' + (up ? ' · 마지막 ' + esc(ago(up)) : '') + '</div>';
+  if (S.bview !== 'album') h += '<div class="foot">가격은 매일 오전 9시에 맥이 확인해요' + (up ? ' · 마지막 ' + esc(ago(up)) : '') + '</div>';
+  else h += '<div class="foot">사진은 성현님 구글 드라이브에 비공개로 저장돼요 · 둘만 볼 수 있어요</div>';
   pg.innerHTML = h;
 }
 
@@ -856,7 +863,9 @@ function bAddSheet(pre) {
 function bPlusSheet() {
   openSheet('<h2>무엇을 남길까요?</h2>' +
     '<button class="srow link big" id="pMemo"><span>아이디어 · 메모 남기기<br><small class="lab">사고 싶은 것, 의견, 떠오른 생각</small></span><span class="r"></span></button>' +
-    '<button class="srow link big" id="pItem"><span>살 것 목록에 추가<br><small class="lab">매일 가격을 같이 확인해요</small></span><span class="r"></span></button>');
+    '<button class="srow link big" id="pItem"><span>살 것 목록에 추가<br><small class="lab">매일 가격을 같이 확인해요</small></span><span class="r"></span></button>' +
+    '<button class="srow link big" id="pPhoto"><span>앨범에 사진 올리기<br><small class="lab">찍은 날짜에 맞춰 달력에 들어가요</small></span><span class="r"></span></button>');
+  $('pPhoto').onclick = () => { closeSheet(); S.bview = 'album'; render(); pickPhotos(); };
   $('pMemo').onclick = () => { closeSheet(); S.bview = 'memo'; render(); setTimeout(() => $('mTxt') && $('mTxt').focus(), 250); };
   $('pItem').onclick = () => { closeSheet(); setTimeout(() => bAddSheet(), 200); };
 }
@@ -878,6 +887,267 @@ async function bMemoAct(act, id) {
   await bWrite('babyMemoSet', [id, st], act === 'del' ? '지웠어요' : act === 'done' ? '완료로 표시했어요' : '다시 열었어요');
 }
 
+
+/* ────────── 아기 앨범 ──────────
+   달력에서 날짜별로 사진을 보고, 전체 보기로 모아 봐요. 홈에는 고른 사진 3장이 떠요.
+   사진은 성현 구글 드라이브(비공개)에 저장되고, 썸네일은 폰에 저장해 두고 다시 쓰여요. */
+const ALB_CACHE = 'gb-album';
+const WD = ['일', '월', '화', '수', '목', '금', '토'];
+
+async function loadAlbum(force) {
+  if (!S.key) return;
+  if (!force && S.albAt && Date.now() - S.albAt < 60000) return;
+  try { applyAlbum(await api('albList')); } catch (e) { /* 다음에 다시 */ }
+}
+function applyAlbum(d) {
+  if (!d || !d.photos) return;
+  S.alb = d; S.albAt = Date.now(); writeJ('gb.alb', d); renderBell();
+  (d.pins || []).forEach((p) => { if (p.thumb) { S.thumbs[p.id] = p.thumb; putThumb(p.id, p.thumb); } });
+  if (S.tab === 'home' || (S.tab === 'baby' && S.bview === 'album')) render();
+}
+async function aWrite(fn, args, okMsg) {
+  setLoading(true);
+  try { const d = await api(fn, ...args); if (d && d.photos) applyAlbum(d); if (okMsg) toast(okMsg); haptic(); return d; }
+  catch (e) { toast(e.message); throw e; } finally { setLoading(false); }
+}
+
+/* 썸네일 저장소 (폰의 Cache Storage) */
+async function getThumb(id) {
+  if (S.thumbs[id]) return S.thumbs[id];
+  try { const c = await caches.open(ALB_CACHE); const r = await c.match('/alb/' + id); if (r) { const t = await r.text(); S.thumbs[id] = t; return t; } } catch (e) { /* 없음 */ }
+  return null;
+}
+async function putThumb(id, data) { try { const c = await caches.open(ALB_CACHE); await c.put('/alb/' + id, new Response(data)); } catch (e) { /* 저장 공간 부족 등 */ } }
+let thumbQ = Promise.resolve();
+function ensureThumbs(ids) {
+  thumbQ = thumbQ.then(async () => {
+    const miss = [];
+    for (const id of ids) { if (!(await getThumb(id))) miss.push(id); }
+    for (let i = 0; i < miss.length; i += 30) {
+      try {
+        const got = await api('albThumbs', miss.slice(i, i + 30));
+        Object.keys(got).forEach((k) => { S.thumbs[k] = got[k]; putThumb(k, got[k]); });
+      } catch (e) { break; }
+    }
+    paintThumbs();
+  });
+  return thumbQ;
+}
+function paintThumbs() {
+  document.querySelectorAll('[data-thumb]').forEach((el) => {
+    const t = S.thumbs[el.dataset.thumb];
+    if (t && el.dataset.painted !== '1') { el.style.backgroundImage = 'url("' + t + '")'; el.dataset.painted = '1'; el.classList.add('has'); }
+  });
+}
+
+/* 날짜 → 임신 주수 / 예정일 이후 일수 */
+function ageLabel(iso) {
+  const due = S.baby && S.baby.meta && S.baby.meta.dueDate;
+  if (!due) return '';
+  const left = Math.round((new Date(due + 'T00:00:00') - new Date(iso + 'T00:00:00')) / 864e5);
+  if (left > 0) { const gd = 280 - left; return gd >= 0 ? '임신 ' + Math.floor(gd / 7) + '주 ' + (gd % 7) + '일' : ''; }
+  return '예정일 +' + (-left) + '일';
+}
+function dayTitle(iso) { const d = new Date(iso + 'T00:00:00'); return (d.getMonth() + 1) + '월 ' + d.getDate() + '일 (' + WD[d.getDay()] + ')'; }
+
+/* 앨범 화면 (출산준비 탭의 세 번째 칸) */
+function albumView() {
+  const A = S.alb || { photos: [] };
+  if (!S.albYm) S.albYm = A.photos.length ? A.photos[0].date.slice(0, 7) : ymOf(new Date());
+  let h = '<div class="albbar"><div class="seg mini" id="aMode"><button data-amode="cal" class="' + (S.albMode === 'cal' ? 'on' : '') + '">달력</button><button data-amode="all" class="' + (S.albMode === 'all' ? 'on' : '') + '">전체</button></div>' +
+    '<button class="btn primary" data-aup="1">＋ 사진 올리기</button></div>';
+  if (!A.photos.length) {
+    return h + '<div class="card empty albempty">아직 사진이 없어요<br><small>초음파 사진부터 올려보세요. 홈에는 고른 사진 3장이 보여요</small></div>';
+  }
+  h += S.albMode === 'all' ? albumAll(A.photos) : albumCal(A.photos);
+  return h;
+}
+function albumCal(photos) {
+  const ym = S.albYm, p = ym.split('-'), y = +p[0], m = +p[1];
+  const byDay = {};
+  photos.forEach((ph) => { if (ph.date.slice(0, 7) === ym) (byDay[ph.date] = byDay[ph.date] || []).push(ph); });
+  const first = new Date(y, m - 1, 1).getDay(), days = new Date(y, m, 0).getDate();
+  const today = todayIso();
+  let cells = '';
+  for (let i = 0; i < first; i++) cells += '<div class="cd empty"></div>';
+  const want = [];
+  for (let d = 1; d <= days; d++) {
+    const iso = ym + '-' + pad2(d), ps = byDay[iso] || [];
+    if (ps.length) want.push(ps[0].id);
+    cells += '<div class="cd' + (ps.length ? ' ph' : '') + (iso === today ? ' today' : '') + (iso === S.albDay ? ' sel' : '') + '"' + (ps.length ? ' data-aday="' + iso + '"' : '') + '>' +
+      (ps.length ? '<i class="th" data-thumb="' + ps[0].id + '"></i>' : '') + '<span class="dn">' + d + '</span>' + (ps.length > 1 ? '<b class="pc">' + ps.length + '</b>' : '') + '</div>';
+  }
+  const cnt = Object.values(byDay).reduce((a, x) => a + x.length, 0);
+  let h = '<div class="card calcard"><div class="calhd"><button class="nav" data-amon="-1">‹</button><div><b>' + y + '년 ' + m + '월</b><small>' + (cnt ? '사진 ' + cnt + '장' : '사진 없음') + '</small></div><button class="nav" data-amon="1">›</button></div>' +
+    '<div class="wk">' + WD.map((w, i) => '<span class="' + (i === 0 ? 'sun' : i === 6 ? 'sat' : '') + '">' + w + '</span>').join('') + '</div>' +
+    '<div class="cal">' + cells + '</div></div>';
+  const sel = S.albDay && S.albDay.slice(0, 7) === ym ? (byDay[S.albDay] || []) : [];
+  if (sel.length) {
+    h += '<div class="card"><h3 class="sec">' + esc(dayTitle(S.albDay)) + ' <small>' + esc(ageLabel(S.albDay)) + '</small></h3>' + gridHtml(sel) + '</div>';
+    sel.forEach((x) => want.push(x.id));
+  } else h += '<div class="foot">사진이 있는 날짜를 누르면 그날 사진이 보여요</div>';
+  setTimeout(() => { paintThumbs(); ensureThumbs(want); }, 0);
+  return h;
+}
+function albumAll(photos) {
+  const lim = S.albLimit || 60, list = photos.slice(0, lim);
+  const groups = [];
+  list.forEach((ph) => { const k = ph.date.slice(0, 7), g = groups[groups.length - 1]; if (g && g.k === k) g.ps.push(ph); else groups.push({ k, ps: [ph] }); });
+  let h = groups.map((g) => '<div class="day"><span>' + ymLabel(g.k) + '</span><span>' + g.ps.length + '장</span></div><div class="card tight albgrid">' + gridHtml(g.ps) + '</div>').join('');
+  if (photos.length > lim) h += '<button class="addrow" data-amore="1">더 보기 (' + (photos.length - lim) + '장 더)</button>';
+  setTimeout(() => { paintThumbs(); ensureThumbs(list.map((x) => x.id)); }, 0);
+  return h;
+}
+function gridHtml(ps) {
+  return '<div class="pgrid">' + ps.map((ph) => '<button class="pt" data-aph="' + esc(ph.id) + '"><i class="th" data-thumb="' + esc(ph.id) + '"></i>' + (ph.pin ? '<b class="pin">★</b>' : '') + '</button>').join('') + '</div>';
+}
+
+/* 홈: 고른 사진 3장 (D-day 위) */
+function homePhotos() {
+  const A = S.alb;
+  if (!A) return '';
+  const pins = (A.pins || []).slice(0, 3);
+  if (!pins.length) {
+    return '<div class="strip light hpempty" data-go="baby" data-bv="album"><span class="k">앨범</span><span class="hn">' + (A.photos.length ? '사진을 눌러 ★ 홈에 고정하면 여기 3장이 보여요' : '짹짹이 사진을 올리면 여기 3장이 보여요') + '</span><span class="chev">›</span></div>';
+  }
+  setTimeout(() => { paintThumbs(); ensureThumbs(pins.map((p) => p.id)); }, 0);
+  return '<div class="hpics">' + pins.map((p) => '<button class="hp" data-aph="' + esc(p.id) + '"><i class="th" data-thumb="' + esc(p.id) + '"' + (S.thumbs[p.id] ? ' style="background-image:url(&quot;' + S.thumbs[p.id] + '&quot;)" data-painted="1"' : '') + '></i><span>' + esc(p.date.slice(5).replace('-', '.')) + '</span></button>').join('') + '</div>';
+}
+
+/* 사진 보기 · 고치기 */
+async function photoSheet(id) {
+  const ph = ((S.alb && S.alb.photos) || []).find((x) => x.id === id) || ((S.alb && S.alb.pins) || []).find((x) => x.id === id);
+  if (!ph) return;
+  const thumb = await getThumb(id);
+  openSheet('<div class="pview"><img id="pvImg" src="' + (thumb || '') + '" alt=""><div class="pvload" id="pvLoad">원본 불러오는 중…</div></div>' +
+    '<div class="pvmeta"><span>' + esc(dayTitle(ph.date)) + '</span><small>' + esc(ageLabel(ph.date)) + (ph.by ? ' · ' + esc(ph.by) + ' 올림' : '') + '</small></div>' +
+    '<div class="fl">날짜</div><input class="inp" id="pvDate" type="date" value="' + esc(ph.date) + '">' +
+    '<div class="fl">메모</div><textarea class="inp" id="pvMemo" rows="2" placeholder="이날의 기록을 남겨요 (예: 첫 초음파, 100일)">' + esc(ph.memo) + '</textarea>' +
+    '<div class="sheet-acts"><button class="btn danger" id="pvDel">삭제</button><button class="btn" id="pvPin">' + (ph.pin ? '★ 홈 고정 해제' : '☆ 홈에 고정') + '</button><button class="btn primary" id="pvSave">저장</button></div>');
+  api('albPhoto', id).then((r) => { const im = $('pvImg'); if (im && r && r.src) { im.src = r.src; } const l = $('pvLoad'); if (l) l.remove(); }).catch(() => { const l = $('pvLoad'); if (l) l.textContent = '원본을 못 불러왔어요'; });
+  $('pvPin').onclick = async () => { $('pvPin').disabled = true; try { await aWrite('albPin', [id, !ph.pin], ph.pin ? '홈 고정을 풀었어요' : '홈에 고정했어요'); closeSheet(); } catch (e) { $('pvPin').disabled = false; } };
+  $('pvDel').onclick = async () => { if (!confirm('이 사진을 지울까요? 드라이브에서도 휴지통으로 옮겨져요.')) return; try { await aWrite('albDelete', [id], '지웠어요'); closeSheet(); } catch (e) { /* toast */ } };
+  $('pvSave').onclick = async () => {
+    const f = {}; const dv = $('pvDate').value, mv = $('pvMemo').value.trim();
+    if (dv && dv !== ph.date) f.date = dv; if (mv !== (ph.memo || '')) f.memo = mv;
+    if (!Object.keys(f).length) { closeSheet(); return; }
+    $('pvSave').disabled = true;
+    try { await aWrite('albEdit', [id, f], '저장했어요'); if (f.date) { S.albYm = f.date.slice(0, 7); S.albDay = f.date; } closeSheet(); } catch (e) { $('pvSave').disabled = false; }
+  };
+}
+
+/* 올리기: 폰에서 줄여서(원본 1600px · 썸네일 400px) 한 장씩 보내요 */
+function pickPhotos() {
+  let inp = $('albFile');
+  if (!inp) { inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.multiple = true; inp.id = 'albFile'; inp.hidden = true; document.body.appendChild(inp); }
+  inp.value = '';
+  inp.onchange = () => uploadPhotos([...inp.files]);
+  inp.click();
+}
+async function uploadPhotos(files) {
+  if (!files.length) return;
+  let ok = 0, last = '';
+  setLoading(true);
+  for (let i = 0; i < files.length; i++) {
+    toast('사진 올리는 중 ' + (i + 1) + '/' + files.length);
+    try {
+      const f = files[i];
+      const date = (await exifDate(f)) || isoOfTime(f.lastModified) || todayIso();
+      const full = await shrink(f, 1600, 0.85), thumb = await shrink(f, 400, 0.75);
+      const r = await api('albUpload', { date, full, thumb });
+      S.thumbs[r.id] = thumb; putThumb(r.id, thumb);
+      ok++; last = date;
+    } catch (e) { toast((e && e.message) || '이 사진은 올리지 못했어요'); await new Promise((r) => setTimeout(r, 1200)); }
+  }
+  setLoading(false);
+  if (ok) { S.albYm = last.slice(0, 7); S.albDay = last; await loadAlbum(true); toast(ok + '장 올렸어요 · 사진을 눌러 ☆ 홈에 고정할 수 있어요'); }
+}
+function isoOfTime(t) { if (!t) return ''; const d = new Date(t); return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
+async function shrink(file, max, q) {
+  let src;
+  try { src = await createImageBitmap(file, { imageOrientation: 'from-image' }); }
+  catch (e) {
+    src = await new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error('이 사진 형식은 열 수 없어요 (HEIC는 아이폰에서 올리면 자동 변환돼요)')); im.src = URL.createObjectURL(file); });
+  }
+  const w = src.width, h = src.height, s = Math.min(1, max / Math.max(w, h));
+  const cv = document.createElement('canvas'); cv.width = Math.round(w * s); cv.height = Math.round(h * s);
+  cv.getContext('2d').drawImage(src, 0, 0, cv.width, cv.height);
+  return cv.toDataURL('image/jpeg', q);
+}
+/* 사진 속 촬영 날짜(EXIF DateTimeOriginal) 읽기 */
+async function exifDate(file) {
+  try {
+    const buf = new DataView(await file.slice(0, 256 * 1024).arrayBuffer());
+    if (buf.getUint16(0) !== 0xFFD8) return '';
+    let o = 2;
+    while (o + 4 < buf.byteLength) {
+      const mk = buf.getUint16(o), len = buf.getUint16(o + 2);
+      if (mk === 0xFFE1 && buf.getUint32(o + 4) === 0x45786966) {
+        const t = o + 10, le = buf.getUint16(t) === 0x4949;
+        const u16 = (p) => buf.getUint16(p, le), u32 = (p) => buf.getUint32(p, le);
+        const readIfd = (ifd, tag) => { const n = u16(t + ifd); for (let i = 0; i < n; i++) { const e = t + ifd + 2 + i * 12; if (u16(e) === tag) return e; } return 0; };
+        const ex = readIfd(u32(t + 4), 0x8769);
+        const dto = ex ? readIfd(u32(ex + 8), 0x9003) : 0;
+        const dt = dto || readIfd(u32(t + 4), 0x0132);
+        if (!dt) return '';
+        const off = t + u32(dt + 8); let s = '';
+        for (let i = 0; i < 10; i++) s += String.fromCharCode(buf.getUint8(off + i));
+        return /^\d{4}:\d{2}:\d{2}$/.test(s) ? s.replace(/:/g, '-') : '';
+      }
+      if ((mk & 0xFF00) !== 0xFF00) break;
+      o += 2 + len;
+    }
+  } catch (e) { /* 날짜 없음 */ }
+  return '';
+}
+
+
+/* ────────── 알림 (헤더 오른쪽 종) ──────────
+   · 확인 필요 거래(해외결제 등): 정리될 때까지 계속 떠요
+   · 상대방이 남긴 새 메모 · 새 사진, 가격이 내려간 품목, 3일 안에 시작하는 행사: 종을 열어보면 '읽음'이 돼요 */
+const BELL_ICON = SV('<path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>');
+function seenAt() { return localStorage.getItem('gb.seen') || ''; }
+function bellItems() {
+  const out = [], seen = seenAt();
+  const cur = (S.data && S.data.month === ymOf(new Date())) ? S.data : readJ('gb.m.' + ymOf(new Date()));
+  const reviews = cur ? (cur.rows || []).filter((r) => r.review) : [];
+  reviews.forEach((r) => out.push({ k: 'rev', sticky: true, t: '확인 필요 거래', d: [esc(r.date), esc(r.memo || '-'), won(r.amt)].map((x) => '<span class="nw">' + x + '</span>').join(' · '), go: 'txrev' }));
+  const me = (S.baby && S.baby.me) || '';
+  ((S.baby && S.baby.memos) || []).filter((m) => m.st === '열림' && m.by !== me && m.at > seen)
+    .forEach((m) => out.push({ k: 'memo', t: esc(m.by) + '님의 새 메모', d: esc(m.text.split('\n')[0]), go: 'memo', at: m.at }));
+  const newPh = ((S.alb && S.alb.photos) || []).filter((p) => p.by && p.by !== me && p.at > seen);
+  if (newPh.length) out.push({ k: 'photo', t: '새 사진 ' + newPh.length + '장', d: esc(newPh[0].by) + '님이 앨범에 올렸어요', go: 'album', at: newPh[0].at });
+  ((S.baby && S.baby.items) || []).forEach((i) => {
+    const t = i.trend || []; if (t.length < 2) return;
+    const ch = t[t.length - 1][1] - t[t.length - 2][1];
+    if (ch < 0 && (!seen || t[t.length - 1][0] > seen.slice(0, 10))) out.push({ k: 'price', t: '가격 내려감', d: esc(i.name.replace(/\s*\(.*\)$/, '')) + ' <b class="pdown nw">▼' + man(-ch) + '</b>', go: 'list', at: t[t.length - 1][0] });
+  });
+  if (S.baby) bEvents().filter((e) => e.dd <= 3).forEach((e) => out.push({ k: 'event', t: e.dd <= 0 ? '행사 진행 중' : '행사 ' + e.tag, d: esc(e.name) + ' ' + esc(e.label), go: 'list', sticky: true }));
+  return out;
+}
+function renderBell() {
+  const b = $('bell'); if (!b) return;
+  const n = bellItems().length;
+  b.querySelector('b').textContent = n > 99 ? '99+' : String(n);
+  b.classList.toggle('has', n > 0);
+}
+function bellSheet() {
+  const items = bellItems();
+  const ICO = { rev: '!', memo: '✎', photo: '▣', price: '↓', event: '◷' };
+  openSheet('<h2>알림</h2>' + (items.length ? '<div class="bl">' + items.map((it, i) =>
+    '<button class="bli ' + it.k + '" data-bl="' + i + '"><span class="bi">' + ICO[it.k] + '</span><span class="bt"><b>' + it.t + '</b><small>' + it.d + '</small></span><span class="chev">›</span></button>').join('') + '</div>'
+    : '<div class="empty">새 알림이 없어요</div>') +
+    '<div class="lab" style="margin-top:12px">확인 필요 거래와 임박한 행사는 정리될 때까지 남아 있어요</div>');
+  localStorage.setItem('gb.seen', new Date().toISOString());
+  renderBell();
+  $('sheet').onclick = (e) => {
+    const el = e.target.closest('[data-bl]'); if (!el) return;
+    const it = items[Number(el.dataset.bl)]; closeSheet(); $('sheet').onclick = null;
+    if (it.go === 'txrev') { S.led = 'list'; S.filter = 'review'; S.cat = ''; go('tx'); }
+    else { S.bview = it.go; go('baby'); }
+  };
+}
+
 /* ────────── 이벤트 ────────── */
 function findRow(row) { return S.data && S.data.rows.find((r) => r.row === Number(row)); }
 function go(tab) {
@@ -886,15 +1156,16 @@ function go(tab) {
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('on', t.dataset.t === tab));
   window.scrollTo(0, 0);
   render();
-  if (tab === 'baby' || tab === 'home') loadBaby();
+  if (tab === 'baby' || tab === 'home') { loadBaby(); loadAlbum(); }
 }
 
 function bind() {
   $('tabs').onclick = (e) => { const t = e.target.closest('.tab'); if (t) { haptic(); go(t.dataset.t); } };
   $('prev').onclick = () => loadMonth(ymShift(S.ym, -1));
   $('next').onclick = () => loadMonth(ymShift(S.ym, 1));
-  $('refresh').onclick = () => { S.err = ''; if (S.tab === 'baby') loadBaby(true); else { loadMonth(S.ym, true); if (S.tab === 'home') loadBaby(true); } };
-  $('addBtn').onclick = () => (S.tab === 'baby' ? bPlusSheet() : txSheet(null));
+  $('refresh').onclick = () => { S.err = ''; if (S.tab === 'baby') { loadBaby(true); loadAlbum(true); } else { loadMonth(S.ym, true); if (S.tab === 'home') { loadBaby(true); loadAlbum(true); } } };
+  $('bell').onclick = () => { haptic(); bellSheet(); };
+  $('addBtn').onclick = () => (S.tab === 'baby' ? (S.bview === 'album' ? pickPhotos() : bPlusSheet()) : txSheet(null));
   $('ledSeg').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; S.led = b.dataset.led; window.scrollTo(0, 0); renderLedger(); };
   document.addEventListener('toggle', (e) => { const t = e.target; if (t.dataset && t.dataset.bshops) S.bopen[t.dataset.bshops] = t.open; }, true);
   $('scrim').onclick = closeSheet;
@@ -908,12 +1179,18 @@ function bind() {
       try { await bWrite('babyAddMemo', [t, ''], '메모를 남겼어요'); } catch (err) { e.target.disabled = false; }
       return;
     }
-    const el = e.target.closest('[data-ok],[data-edit],[data-cat],[data-go],[data-ym],[data-asset],[data-set],[data-led],[data-bview],[data-bcat],[data-bitem],[data-mact],[data-badd],[data-trip],[data-tripadd]');
+    const el = e.target.closest('[data-ok],[data-edit],[data-cat],[data-go],[data-ym],[data-asset],[data-set],[data-led],[data-bview],[data-bcat],[data-bitem],[data-mact],[data-badd],[data-trip],[data-tripadd],[data-amode],[data-aup],[data-aday],[data-amon],[data-aph],[data-amore]');
     if (!el || el.closest('#sheet')) return;
     if (el.dataset.trip) { tripSheet(el.dataset.trip); return; }
     if (el.dataset.tripadd) { tripEditSheet(null); return; }
     if (el.dataset.led) { S.led = el.dataset.led; window.scrollTo(0, 0); renderLedger(); return; }
-    if (el.dataset.bview) { S.bview = el.dataset.bview; render(); return; }
+    if (el.dataset.bview) { S.bview = el.dataset.bview; render(); if (S.bview === 'album') loadAlbum(); return; }
+    if (el.dataset.amode) { S.albMode = el.dataset.amode; render(); return; }
+    if (el.dataset.aup) { pickPhotos(); return; }
+    if (el.dataset.aday) { S.albDay = S.albDay === el.dataset.aday ? null : el.dataset.aday; render(); return; }
+    if (el.dataset.amon) { S.albYm = ymShift(S.albYm || ymOf(new Date()), Number(el.dataset.amon)); S.albDay = null; render(); return; }
+    if (el.dataset.aph) { photoSheet(el.dataset.aph); return; }
+    if (el.dataset.amore) { S.albLimit = (S.albLimit || 60) + 60; render(); return; }
     if (el.dataset.bcat) { S.bcat = el.dataset.bcat; render(); return; }
     if (el.dataset.bitem) { bItemSheet(el.dataset.bitem); return; }
     if (el.dataset.mact) { bMemoAct(el.dataset.mact, el.dataset.mid); return; }
@@ -940,7 +1217,7 @@ function bind() {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && !S.key) { $('gBtn').disabled = false; claimLogin(); }
     if (document.visibilityState === 'visible' && S.key && S.ym && (!S.fetchedAt[S.ym] || Date.now() - S.fetchedAt[S.ym] > 60000)) loadMonth(S.ym, true);
-    if (document.visibilityState === 'visible' && S.key) loadBaby();
+    if (document.visibilityState === 'visible' && S.key) { loadBaby(); loadAlbum(); }
   });
   window.addEventListener('online', () => { S.err = ''; loadMonth(S.ym, true); });
   $('gBtn').onclick = googleLogin;
@@ -961,6 +1238,7 @@ async function connect(k, how) {
     $('connect').hidden = true;
     applyMonth(d.month);
     loadBaby(true);
+    loadAlbum(true);
     toast(how === 'google' ? (S.user ? S.user + ' 계정으로 로그인했어요' : '로그인했어요') : '연결됐어요');
   } catch (e) { $('keyErr').textContent = e.message === 'unauthorized' ? '연결 코드가 맞지 않아요.' : e.message; S.key = ''; }
   finally { $('keyBtn').disabled = false; $('gBtn').disabled = false; }
@@ -1020,7 +1298,8 @@ async function claimLogin() {
 }
 function disconnect(msg) {
   clearKey(); localStorage.removeItem('gb.user');
-  Object.keys(localStorage).filter((k) => k.indexOf('gb.m.') === 0 || k === 'gb.cfg' || k === 'gb.baby').forEach((k) => localStorage.removeItem(k));
+  Object.keys(localStorage).filter((k) => k.indexOf('gb.m.') === 0 || k === 'gb.cfg' || k === 'gb.baby' || k === 'gb.alb').forEach((k) => localStorage.removeItem(k));
+  try { caches.delete(ALB_CACHE); } catch (e) { /* noop */ } S.alb = null; S.thumbs = {};
   S.key = ''; S.data = null; S.user = ''; S.baby = null; S.babyAt = 0;
   $('keyErr').textContent = msg || '';
   $('connect').hidden = false;

@@ -15,7 +15,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" href="favicon-64.png">
-<link rel="stylesheet" href="app.css?v=8">
+<link rel="stylesheet" href="app.css?v=9">
 </head>
 <body>
 <div id="app">
@@ -26,6 +26,7 @@
       <button class="nav" id="next" aria-label="다음 달">›</button>
     </div>
     <div class="hr">
+      <button class="ic bell" id="bell" aria-label="알림"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><b>0</b></button>
       <button class="ic" id="refresh" aria-label="새로고침"><span>↻</span></button>
       <button class="ic solid" id="addBtn" aria-label="거래 추가"><span>+</span></button>
     </div>
@@ -74,6 +75,6 @@
 <div id="sheet" aria-modal="true" role="dialog"></div>
 <div id="toast"></div>
 
-<script src="app.js?v=13"></script>
+<script src="app.js?v=14"></script>
 </body>
 </html>
