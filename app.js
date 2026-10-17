@@ -2,7 +2,7 @@
  * 데이터는 구글 시트(Apps Script API)에 있고, 이 앱은 화면만 담당해요.
  * 열 때는 폰에 저장해 둔 마지막 화면을 바로 보여주고, 뒤에서 최신 데이터를 받아와요. */
 'use strict';
-const VERSION = '1.3.1';
+const VERSION = '1.3.2';
 const API = 'https://script.google.com/macros/s/AKfycbyxgtCCZJEixEnxgHr_g-XbBrFy4j7oqd0GTJ7GK29Z3okMu5Kk8JN_FBFjkBSBsMXkdg/exec';
 const SHEET_URL = 'https://docs.google.com/spreadsheets/d/1O9fVSgn2GEPlz2eURBd0J_kQzQH5vuwphPRmo1yAco4/edit';
 const GUBUN_ORDER = ['변동', '고정', '수입', '회사경비', '저축'];
@@ -1026,6 +1026,21 @@ function disconnect(msg) {
   $('connect').hidden = false;
 }
 
+/* 새 버전 확인: 서버의 app.js 버전이 지금과 다르면 한 번 새로고침해요 (하루 1번 이상 반복하지 않게) */
+let verChecking = false;
+async function checkNewVersion() {
+  if (verChecking || !navigator.onLine) return;
+  verChecking = true;
+  try {
+    const t = await (await fetch('app.js?vc=' + Date.now(), { cache: 'no-store' })).text();
+    const m = t.match(/const VERSION = '([\d.]+)'/);
+    if (m && m[1] !== VERSION) {
+      const key = 'gb.reloadFor';
+      if (sessionStorage.getItem(key) !== m[1]) { sessionStorage.setItem(key, m[1]); toast('새 버전(v' + m[1] + ')으로 바꾸는 중…'); setTimeout(() => location.reload(), 600); }
+    }
+  } catch (e) { /* 다음에 다시 확인 */ } finally { verChecking = false; }
+}
+
 /* ────────── 시작 ────────── */
 (function start() {
   const m = location.hash.match(/k=(gb_[0-9a-f]+)/);
@@ -1046,8 +1061,13 @@ function disconnect(msg) {
   render();
   boot();
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').catch(() => { /* 오프라인 캐시는 선택 기능 */ });
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((reg) => {
+      // 앱을 다시 열 때마다 새 버전이 있는지 확인해요
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
+    }).catch(() => { /* 오프라인 캐시는 선택 기능 */ });
+    checkNewVersion();
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkNewVersion(); });
     let reloaded = false;
-    navigator.serviceWorker.addEventListener('controllerchange', () => { if (!reloaded && S.loading === 0) { reloaded = true; location.reload(); } });
+    navigator.serviceWorker.addEventListener('controllerchange', () => { if (!reloaded) { reloaded = true; location.reload(); } });
   }
 })();
