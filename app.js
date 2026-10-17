@@ -2,7 +2,7 @@
  * 데이터는 구글 시트(Apps Script API)에 있고, 이 앱은 화면만 담당해요.
  * 열 때는 폰에 저장해 둔 마지막 화면을 바로 보여주고, 뒤에서 최신 데이터를 받아와요. */
 'use strict';
-const VERSION = '1.2.0';
+const VERSION = '1.2.1';
 const API = 'https://script.google.com/macros/s/AKfycbyxgtCCZJEixEnxgHr_g-XbBrFy4j7oqd0GTJ7GK29Z3okMu5Kk8JN_FBFjkBSBsMXkdg/exec';
 const SHEET_URL = 'https://docs.google.com/spreadsheets/d/1O9fVSgn2GEPlz2eURBd0J_kQzQH5vuwphPRmo1yAco4/edit';
 const GUBUN_ORDER = ['변동', '고정', '수입', '회사경비', '저축'];
@@ -180,18 +180,20 @@ function renderLedger() {
   $('ledList').hidden = S.led !== 'list';
   if (S.led === 'sum') renderLedgerSum(); else renderTx();
 }
+/* 이번 달인데 아직 수입이 없으면 '월급 입금 전'으로 보고, 남은 돈 마이너스를 빨간색으로 겁주지 않아요 */
+function prePay(d) { return !!d && d.month === ymOf(new Date()) && !(d.income > 0); }
 function renderLedgerSum() {
   const d = S.data, ov = d.ov || {};
-  const budget = d.budget || 0, v = d.variable || 0;
+  const budget = d.budget || 0, v = d.variable || 0, fx = d.fixed || 0;
   const pct = budget ? v / budget : 0;
   let line;
-  if (!budget) line = '<span>예산을 정하면 얼마나 남았는지 보여줘요</span>';
-  else if (v > budget) line = '<span class="bad">예산 ' + man(budget) + '원보다 ' + man(v - budget) + '원 초과</span>';
-  else line = '예산 ' + man(budget) + '원 중 <span class="good">' + man(budget - v) + '원 남음</span>';
+  if (!budget) line = '<span>변동지출 예산을 정하면 얼마나 남았는지 보여줘요</span>';
+  else if (v > budget) line = man(budget) + '원 중 ' + man(v) + '원 사용 · <span class="bad">' + man(v - budget) + '원 초과</span>';
+  else line = man(budget) + '원 중 ' + man(v) + '원 사용 · <span class="good">' + man(budget - v) + '원 남음</span>';
   let pace = '';
   if (d.pace && v && budget) {
     const p = d.pace.projected;
-    pace = '<div class="sub">' + d.pace.day + '일째 · 이 속도면 월말 약 ' + man(p) + '원' + (p > budget ? ' <span class="bad">(초과 예상)</span>' : '') + '</div>';
+    pace = '<div class="sub">' + d.pace.day + '일째 · 이 속도면 월말 변동지출 약 ' + man(p) + '원' + (p > budget ? ' <span class="bad">(초과 예상)</span>' : '') + '</div>';
   }
   const planned = d.plannedFixed || 0;
   const reviews = d.rows.filter((r) => r.review);
@@ -200,14 +202,17 @@ function renderLedgerSum() {
   const tmax = Math.max(1, ...trend.map((t) => Math.max(t.income, t.fixed + t.variable)));
 
   let h = '';
-  h += '<div class="card"><div class="lab">이번 달 생활비</div><div class="big num" id="hero">' + won(v) + '</div>' +
+  h += '<div class="card"><div class="lab">이번 달 총지출 <small>변동 + 고정</small></div><div class="big num" id="hero">' + won(v + fx) + '</div>' +
+    '<div class="sub">변동 ' + man(v) + ' + 고정 ' + man(fx) + (planned ? ' <span class="muted">(예정 ' + man(planned) + ' 포함)</span>' : '') +
+    (d.company ? ' · 회사경비 ' + man(d.company) + ' 제외' : '') + '</div>' +
+    '<div class="bud"><div class="lab">변동지출 예산</div>' +
     '<div class="bar' + (pct > 1 ? ' over' : '') + '"><div style="width:' + Math.min(100, pct * 100) + '%"></div></div>' +
-    '<div class="sub">' + line + '</div>' + pace + '</div>';
+    '<div class="sub">' + line + '</div>' + pace + '</div></div>';
   h += '<div class="grid2">' +
     stat('수입', won(d.income), '', 'inc') +
     stat('고정지출', won(d.fixed), planned ? '예정 ' + man(planned) + '원 포함' : '모두 확정', '') +
     stat('회사경비', won(d.company), '정산 예정 · 지출 제외', 'co') +
-    stat('남은 돈', won(d.remain), d.savings ? '저축 ' + man(d.savings) + '원 반영' : '저축 계획 없음', d.remain < 0 ? 'neg' : '') + '</div>';
+    stat('남은 돈', won(d.remain), prePay(d) ? '월급 입금 전' : (d.savings ? '저축 ' + man(d.savings) + '원 반영' : '저축 계획 없음'), d.remain < 0 && !prePay(d) ? 'neg' : '') + '</div>';
 
   if (reviews.length) {
     h += '<div class="card"><h3 class="sec">확인 필요 <small>' + reviews.length + '건</small></h3>' +
@@ -244,16 +249,17 @@ function renderHome() {
   const due = S.baby ? bDue() : null;
   if (due) h += '<div class="strip" data-go="baby">' + IC.baby + '<span>짹짹이 만나기까지 <b class="num">' + (due.left > 0 ? 'D-' + due.left : due.left === 0 ? 'D-day' : 'D+' + (-due.left)) + '</b></span>' + (due.left > 0 && due.w >= 0 ? '<small>임신 ' + due.w + '주 ' + due.d + '일</small>' : '') + '</div>';
   const budget = d.budget || 0, v = d.variable || 0, pct = budget ? v / budget : 0;
+  const spendAll = v + (d.fixed || 0);
   const reviews = d.rows.filter((r) => r.review).length;
   const t = ov.totals || { asset: 0, debt: 0, net: 0 };
   let chg = '자산 ' + man(t.asset) + ' · 부채 ' + man(t.debt);
   if (ov.change30 && (ov.hist || []).length > 1) { const a = ov.change30.amt; chg = '<span class="chg ' + (a > 0 ? 'up' : a < 0 ? 'down' : 'flat') + '">' + (a > 0 ? '▲' : a < 0 ? '▼' : '') + man(Math.abs(a)) + '</span> ' + esc(ov.change30.from.slice(5).replace('-', '/')) + ' 대비'; }
   const bsub = budget ? '<div class="bar sm' + (pct > 1 ? ' over' : '') + '"><div style="width:' + Math.min(100, pct * 100) + '%"></div></div>' +
-    (v > budget ? '<span class="bad">예산 ' + man(v - budget) + ' 초과</span>' : '<span class="good">예산 ' + man(budget - v) + ' 남음</span>') : '예산 미정';
+    (v > budget ? '<span class="bad">변동 예산 ' + man(v - budget) + ' 초과</span>' : '<span class="good">변동 예산 ' + man(budget - v) + ' 남음</span>') : '변동 ' + man(v) + ' · 고정 ' + man(d.fixed || 0);
   h += '<div class="tiles">' +
-    tile('tx', IC.tx, ymLabel(S.ym) + ' 생활비', man(v), bsub) +
+    tile('tx', IC.tx, ymLabel(S.ym) + ' 총지출', man(spendAll), bsub) +
     tile('asset', IC.asset, '순자산', man(t.net), chg) +
-    tile('tx', '', '이번 달 남은 돈', '<span class="' + (d.remain < 0 ? 'neg' : '') + '">' + man(d.remain) + '</span>', '수입 ' + man(d.income) + ' · 고정 ' + man(d.fixed)) +
+    tile('tx', '', '이번 달 남은 돈', '<span class="' + (d.remain < 0 && !prePay(d) ? 'neg' : '') + '">' + man(d.remain) + '</span>', prePay(d) ? '월급 입금 전 · 지출 ' + man(spendAll) : '수입 ' + man(d.income) + ' · 지출 ' + man(spendAll)) +
     tile(reviews ? 'txrev' : 'tx', '', '확인할 거래', reviews ? '<span class="warn">' + reviews + '건</span>' : '없음', reviews ? '눌러서 바로 확인' : '모두 정리됐어요', reviews ? 'alert' : '') +
     '</div>';
   if (S.baby) {

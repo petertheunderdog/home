@@ -336,3 +336,8 @@ svg.bsp{display:block;width:100%;height:44px;margin-top:10px}
 .hl1 .k{flex:none;font-size:11px;font-weight:700;color:var(--ink3);width:26px}
 .hl1 .hn{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .hl1 .cnt{min-width:18px;padding:0 5px;border-radius:9px;background:var(--bad);color:#fff;font-size:11px;line-height:18px;text-align:center}
+
+/* 총지출 카드 안의 변동지출 예산 영역 */
+.bud{margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+.bud .lab{margin-bottom:6px}
+.lab small{font-size:11px;color:var(--ink3);margin-left:4px}
