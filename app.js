@@ -2,7 +2,7 @@
  * 데이터는 구글 시트(Apps Script API)에 있고, 이 앱은 화면만 담당해요.
  * 열 때는 폰에 저장해 둔 마지막 화면을 바로 보여주고, 뒤에서 최신 데이터를 받아와요. */
 'use strict';
-const VERSION = '1.3.2';
+const VERSION = '1.3.3';
 const API = 'https://script.google.com/macros/s/AKfycbyxgtCCZJEixEnxgHr_g-XbBrFy4j7oqd0GTJ7GK29Z3okMu5Kk8JN_FBFjkBSBsMXkdg/exec';
 const SHEET_URL = 'https://docs.google.com/spreadsheets/d/1O9fVSgn2GEPlz2eURBd0J_kQzQH5vuwphPRmo1yAco4/edit';
 const GUBUN_ORDER = ['변동', '고정', '수입', '회사경비', '저축'];
@@ -188,12 +188,12 @@ function renderLedgerSum() {
   const pct = budget ? v / budget : 0;
   let line;
   if (!budget) line = '<span>변동지출 예산을 정하면 얼마나 남았는지 보여줘요</span>';
-  else if (v > budget) line = man(budget) + '원 중 ' + man(v) + '원 사용 · <span class="bad">' + man(v - budget) + '원 초과</span>';
-  else line = man(budget) + '원 중 ' + man(v) + '원 사용 · <span class="good">' + man(budget - v) + '원 남음</span>';
+  else if (v > budget) line = '<span class="nw">' + man(budget) + '원 중 ' + man(v) + '원 사용</span> · <span class="nw bad">' + man(v - budget) + '원 초과</span>';
+  else line = '<span class="nw">' + man(budget) + '원 중 ' + man(v) + '원 사용</span> · <span class="nw good">' + man(budget - v) + '원 남음</span>';
   let pace = '';
   if (d.pace && v && budget) {
     const p = d.pace.projected;
-    pace = '<div class="sub">' + d.pace.day + '일째 · 이 속도면 월말 변동지출 약 ' + man(p) + '원' + (p > budget ? ' <span class="bad">(초과 예상)</span>' : '') + '</div>';
+    pace = '<div class="sub"><span class="nw">' + d.pace.day + '일째</span> · <span class="nw">이 속도면 월말 변동지출</span> <span class="nw">약 ' + man(p) + '원' + (p > budget ? ' <span class="bad">(초과 예상)</span>' : '') + '</span></div>';
   }
   const planned = d.plannedFixed || 0;
   const reviews = d.rows.filter((r) => r.review);
@@ -203,8 +203,8 @@ function renderLedgerSum() {
 
   let h = '';
   h += '<div class="card"><div class="lab">이번 달 총지출 <small>변동 + 고정</small></div><div class="big num" id="hero">' + won(v + fx) + '</div>' +
-    '<div class="sub">변동 ' + man(v) + ' + 고정 ' + man(fx) + (planned ? ' <span class="muted">(예정 ' + man(planned) + ' 포함)</span>' : '') +
-    (d.company ? ' · 회사경비 ' + man(d.company) + ' 제외' : '') + '</div>' +
+    '<div class="sub"><span class="nw">변동 ' + man(v) + '</span> + <span class="nw">고정 ' + man(fx) + '</span></div>' +
+    (planned || d.company ? '<div class="sub2">' + [planned ? '<span class="nw">고정 중 예정 ' + man(planned) + ' 포함</span>' : '', d.company ? '<span class="nw">회사경비 ' + man(d.company) + '은 별도</span>' : ''].filter(Boolean).join(' · ') + '</div>' : '') +
     '<div class="bud"><div class="lab">변동지출 예산</div>' +
     '<div class="bar' + (pct > 1 ? ' over' : '') + '"><div style="width:' + Math.min(100, pct * 100) + '%"></div></div>' +
     '<div class="sub">' + line + '</div>' + pace + '</div></div>';
@@ -217,7 +217,7 @@ function renderLedgerSum() {
   if (reviews.length) {
     h += '<div class="card"><h3 class="sec">확인 필요 <small>' + reviews.length + '건</small></h3>' +
       reviews.map((r) => '<div class="rv"><div style="min-width:0"><div class="nm">' + esc(r.memo || '-') + '</div>' +
-        '<div class="m num">' + esc(r.date) + ' · ' + esc(r.pay || '') + ' · ' + won(r.amt) + ' · ' + esc(r.gubun + '/' + r.cat) + '</div></div>' +
+        '<div class="m num">' + [esc(r.date), esc(r.pay || ''), won(r.amt), esc(r.gubun + '/' + r.cat)].filter(Boolean).map((x) => '<span class="nw">' + x + '</span>').join(' · ') + '</div></div>' +
         '<div class="acts"><button class="btn" data-edit="' + r.row + '">고치기</button><button class="btn primary" data-ok="' + r.row + '">맞아요</button></div></div>').join('') + '</div>';
   }
 
@@ -254,14 +254,14 @@ function renderHome() {
   const spendAll = v + (d.fixed || 0);
   const reviews = d.rows.filter((r) => r.review).length;
   const t = ov.totals || { asset: 0, debt: 0, net: 0 };
-  let chg = '자산 ' + man(t.asset) + ' · 부채 ' + man(t.debt);
-  if (ov.change30 && (ov.hist || []).length > 1) { const a = ov.change30.amt; chg = '<span class="chg ' + (a > 0 ? 'up' : a < 0 ? 'down' : 'flat') + '">' + (a > 0 ? '▲' : a < 0 ? '▼' : '') + man(Math.abs(a)) + '</span> ' + esc(ov.change30.from.slice(5).replace('-', '/')) + ' 대비'; }
+  let chg = '<span class="nw">자산 ' + man(t.asset) + '</span> · <span class="nw">부채 ' + man(t.debt) + '</span>';
+  if (ov.change30 && (ov.hist || []).length > 1) { const a = ov.change30.amt; chg = '<span class="chg ' + (a > 0 ? 'up' : a < 0 ? 'down' : 'flat') + '">' + (a > 0 ? '▲' : a < 0 ? '▼' : '') + man(Math.abs(a)) + '</span> <span class="nw">' + esc(ov.change30.from.slice(5).replace('-', '/')) + ' 대비</span>'; }
   const bsub = budget ? '<div class="bar sm' + (pct > 1 ? ' over' : '') + '"><div style="width:' + Math.min(100, pct * 100) + '%"></div></div>' +
-    (v > budget ? '<span class="bad">변동 예산 ' + man(v - budget) + ' 초과</span>' : '<span class="good">변동 예산 ' + man(budget - v) + ' 남음</span>') : '변동 ' + man(v) + ' · 고정 ' + man(d.fixed || 0);
+    (v > budget ? '<span class="bad nw">변동 예산</span> <span class="bad nw">' + man(v - budget) + ' 초과</span>' : '<span class="good nw">변동 예산</span> <span class="good nw">' + man(budget - v) + ' 남음</span>') : '<span class="nw">변동 ' + man(v) + '</span> · <span class="nw">고정 ' + man(d.fixed || 0) + '</span>';
   h += '<div class="tiles">' +
     tile('tx', IC.tx, ymLabel(S.ym) + ' 총지출', man(spendAll), bsub) +
     tile('asset', IC.asset, '순자산', man(t.net), chg) +
-    tile('tx', '', '이번 달 남은 돈', '<span class="' + (d.remain < 0 && !prePay(d) ? 'neg' : '') + '">' + man(d.remain) + '</span>', prePay(d) ? '월급 입금 전 · 지출 ' + man(spendAll) : '수입 ' + man(d.income) + ' · 지출 ' + man(spendAll)) +
+    tile('tx', '', '이번 달 남은 돈', '<span class="' + (d.remain < 0 && !prePay(d) ? 'neg' : '') + '">' + man(d.remain) + '</span>', prePay(d) ? '<span class="nw">월급 입금 전</span> · <span class="nw">지출 ' + man(spendAll) + '</span>' : '<span class="nw">수입 ' + man(d.income) + '</span> · <span class="nw">지출 ' + man(spendAll) + '</span>') +
     tile(reviews ? 'txrev' : 'tx', '', '확인할 거래', reviews ? '<span class="warn">' + reviews + '건</span>' : '없음', reviews ? '눌러서 바로 확인' : '모두 정리됐어요', reviews ? 'alert' : '') +
     '</div>';
   if (S.baby) {

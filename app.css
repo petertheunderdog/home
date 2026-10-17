@@ -353,3 +353,9 @@ svg.bsp{display:block;width:100%;height:44px;margin-top:10px}
 .hint{font-size:12px;color:var(--ink3);line-height:1.5}
 .tauto{margin:14px 0 4px;padding:12px;border-radius:12px;background:var(--card2);font-size:13.5px}
 .tauto .acts{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}
+
+/* 폰에서 문구가 어색하게 끊기지 않게: 덩어리(.nw) 단위로만 줄바꿈 */
+.nw{white-space:nowrap}
+.sub2{font-size:12px;color:var(--ink3);margin-top:3px;line-height:1.5}
+.sub{line-height:1.5}
+.ts{word-break:keep-all}
