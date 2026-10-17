@@ -2,7 +2,7 @@
  * 데이터는 구글 시트(Apps Script API)에 있고, 이 앱은 화면만 담당해요.
  * 열 때는 폰에 저장해 둔 마지막 화면을 바로 보여주고, 뒤에서 최신 데이터를 받아와요. */
 'use strict';
-const VERSION = '1.1.1';
+const VERSION = '1.2.0';
 const API = 'https://script.google.com/macros/s/AKfycbyxgtCCZJEixEnxgHr_g-XbBrFy4j7oqd0GTJ7GK29Z3okMu5Kk8JN_FBFjkBSBsMXkdg/exec';
 const SHEET_URL = 'https://docs.google.com/spreadsheets/d/1O9fVSgn2GEPlz2eURBd0J_kQzQH5vuwphPRmo1yAco4/edit';
 const GUBUN_ORDER = ['변동', '고정', '수입', '회사경비', '저축'];
@@ -13,9 +13,20 @@ const S = {
   key: localStorage.getItem('gb.key') || readCookie('gb_key'),
   user: localStorage.getItem('gb.user') || '',
   cfg: readJ('gb.cfg'),
-  ym: null, data: null, tab: 'home',
+  ym: null, data: null, tab: 'home', led: 'sum',
+  baby: readJ('gb.baby'), babyAt: 0, bview: 'list', bcat: 'all', bopen: {},
   filter: 'all', cat: '', q: '',
   loading: 0, fetchedAt: {}, err: ''
+};
+
+/* 탭 · 화면 아이콘 (선 아이콘, currentColor) */
+const SV = (d) => '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + '</svg>';
+const IC = {
+  home: SV('<path d="M3.5 10.5 12 3.5l8.5 7V20a1 1 0 0 1-1 1H15v-6h-6v6H4.5a1 1 0 0 1-1-1z"/>'),
+  tx: SV('<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/>'),
+  asset: SV('<path d="M4 20h16"/><path d="M5 16l4.5-5 3.5 3 6-7"/><path d="M15 7h4v4"/>'),
+  baby: SV('<path d="M12 4v6h8a7.5 7.5 0 0 0-8-6z"/><path d="M2.5 6H5l1.6 5.4A3 3 0 0 0 9.5 13.5H17a3 3 0 0 0 3-3V10"/><circle cx="9" cy="18.5" r="1.8"/><circle cx="17" cy="18.5" r="1.8"/>'),
+  set: SV('<path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/>')
 };
 
 /* ────────── utils ────────── */
@@ -103,6 +114,7 @@ function applyMonth(d) {
 
 async function boot() {
   const ym = S.ym;
+  loadBaby(true);
   setLoading(true);
   try {
     const d = await api('boot', ym);
@@ -126,19 +138,21 @@ async function loadMonth(ym, force) {
 function render() {
   renderHeader();
   renderStatus();
+  if (S.tab === 'baby') { renderBaby(); return; }
   if (!S.data) { renderSkeleton(); return; }
   if (S.tab === 'home') renderHome();
-  if (S.tab === 'tx') renderTx();
+  if (S.tab === 'tx') renderLedger();
   if (S.tab === 'asset') renderAsset();
   if (S.tab === 'set') renderSet();
 }
 
 function renderHeader() {
-  const monthTab = S.tab === 'home' || S.tab === 'tx';
-  $('prev').style.visibility = monthTab ? 'visible' : 'hidden';
-  $('next').style.visibility = monthTab ? 'visible' : 'hidden';
-  $('title').textContent = monthTab ? ymLabel(S.ym) : (S.tab === 'asset' ? '자산' : '설정');
-  $('addBtn').style.visibility = S.tab === 'set' ? 'hidden' : 'visible';
+  const monthTab = S.tab === 'tx';
+  $('prev').style.display = monthTab ? '' : 'none';
+  $('next').style.display = monthTab ? '' : 'none';
+  $('title').textContent = monthTab ? ymLabel(S.ym) + ' 가계부' : ({ home: '차곡', asset: '자산', baby: '출산준비', set: '설정' }[S.tab] || '');
+  $('addBtn').style.visibility = S.tab === 'set' || S.tab === 'asset' ? 'hidden' : 'visible';
+  $('addBtn').setAttribute('aria-label', S.tab === 'baby' ? '메모 · 살 것 추가' : '거래 추가');
 }
 
 /* 가장 최근에 데이터가 들어온 시각: 실시간 수집 · 보완 수집 · 일일 정리 중 가장 늦은 것 */
@@ -147,6 +161,7 @@ function renderStatus() {
   const el = $('status');
   if (S.err) { el.innerHTML = '<span class="bad">' + esc(S.err) + '</span>'; return; }
   if (S.loading) { el.textContent = '동기화 중…'; return; }
+  if (S.tab === 'baby') { el.textContent = S.babyAt ? '최신 업데이트: ' + ago(new Date(S.babyAt).toISOString()) : ''; return; }
   const t = latestSync(S.data && S.data.ov && S.data.ov.sync);
   el.textContent = t ? '최신 업데이트: ' + ago(t) : '';
 }
@@ -156,10 +171,16 @@ function renderSkeleton() {
   pg.innerHTML = '<div class="card"><div class="skel" style="width:40%"></div><div class="skel" style="height:34px;width:70%"></div><div class="skel"></div></div>' +
     '<div class="card"><div class="skel"></div><div class="skel"></div><div class="skel" style="width:60%"></div></div>';
 }
-function pageEl(t) { return { home: $('pgHome'), tx: $('txList'), asset: $('pgAsset'), set: $('pgSet') }[t]; }
+function pageEl(t) { return { home: $('pgHome'), tx: $('ledSum'), asset: $('pgAsset'), baby: $('pgBaby'), set: $('pgSet') }[t]; }
 
-/* 홈 */
-function renderHome() {
+/* 가계부: 요약 | 내역 */
+function renderLedger() {
+  [...$('ledSeg').children].forEach((b) => b.classList.toggle('on', b.dataset.led === S.led));
+  $('ledSum').hidden = S.led !== 'sum';
+  $('ledList').hidden = S.led !== 'list';
+  if (S.led === 'sum') renderLedgerSum(); else renderTx();
+}
+function renderLedgerSum() {
   const d = S.data, ov = d.ov || {};
   const budget = d.budget || 0, v = d.variable || 0;
   const pct = budget ? v / budget : 0;
@@ -206,9 +227,50 @@ function renderHome() {
       '</div></div>';
   }
 
-  h += '<div class="card"><h3 class="sec">최근 거래 <button data-go="tx">전체 보기</button></h3>' +
+  h += '<div class="card"><h3 class="sec">최근 거래 <button data-led="list">전체 보기</button></h3>' +
     (recent.length ? '<div>' + recent.map(txRow).join('') + '</div>' : '<div class="empty">아직 거래가 없어요</div>') + '</div>';
   h += '<div class="foot">카드 문자는 받는 즉시 기록돼요 · 1시간마다 자동 동기화</div>';
+  $('ledSum').innerHTML = h;
+}
+
+/* 홈: 우리집 전체를 한눈에 (2단 타일 + 넓은 카드) */
+function tile(go, icon, lab, val, sub, cls) {
+  return '<div class="tile' + (cls ? ' ' + cls : '') + '" data-go="' + go + '"><div class="tl">' + (icon || '') + '<span>' + lab + '</span></div><div class="tv num">' + val + '</div>' + (sub ? '<div class="ts">' + sub + '</div>' : '') + '</div>';
+}
+function renderHome() {
+  // 원칙: 홈은 한 화면 안에서 '지금 상태 + 어디로 갈지'만. 자세한 건 각 탭에서.
+  const d = S.data, ov = d.ov || {};
+  let h = '';
+  const due = S.baby ? bDue() : null;
+  if (due) h += '<div class="strip" data-go="baby">' + IC.baby + '<span>짹짹이 만나기까지 <b class="num">' + (due.left > 0 ? 'D-' + due.left : due.left === 0 ? 'D-day' : 'D+' + (-due.left)) + '</b></span>' + (due.left > 0 && due.w >= 0 ? '<small>임신 ' + due.w + '주 ' + due.d + '일</small>' : '') + '</div>';
+  const budget = d.budget || 0, v = d.variable || 0, pct = budget ? v / budget : 0;
+  const reviews = d.rows.filter((r) => r.review).length;
+  const t = ov.totals || { asset: 0, debt: 0, net: 0 };
+  let chg = '자산 ' + man(t.asset) + ' · 부채 ' + man(t.debt);
+  if (ov.change30 && (ov.hist || []).length > 1) { const a = ov.change30.amt; chg = '<span class="chg ' + (a > 0 ? 'up' : a < 0 ? 'down' : 'flat') + '">' + (a > 0 ? '▲' : a < 0 ? '▼' : '') + man(Math.abs(a)) + '</span> ' + esc(ov.change30.from.slice(5).replace('-', '/')) + ' 대비'; }
+  const bsub = budget ? '<div class="bar sm' + (pct > 1 ? ' over' : '') + '"><div style="width:' + Math.min(100, pct * 100) + '%"></div></div>' +
+    (v > budget ? '<span class="bad">예산 ' + man(v - budget) + ' 초과</span>' : '<span class="good">예산 ' + man(budget - v) + ' 남음</span>') : '예산 미정';
+  h += '<div class="tiles">' +
+    tile('tx', IC.tx, ymLabel(S.ym) + ' 생활비', man(v), bsub) +
+    tile('asset', IC.asset, '순자산', man(t.net), chg) +
+    tile('tx', '', '이번 달 남은 돈', '<span class="' + (d.remain < 0 ? 'neg' : '') + '">' + man(d.remain) + '</span>', '수입 ' + man(d.income) + ' · 고정 ' + man(d.fixed)) +
+    tile(reviews ? 'txrev' : 'tx', '', '확인할 거래', reviews ? '<span class="warn">' + reviews + '건</span>' : '없음', reviews ? '눌러서 바로 확인' : '모두 정리됐어요', reviews ? 'alert' : '') +
+    '</div>';
+  if (S.baby) {
+    const sm = bSummary(), ev = bEvents(), memos = (S.baby.memos || []).filter((m) => m.st === '열림');
+    const drops = sm.items.filter((i) => bChange(i) < 0);
+    const lines = [];
+    if (drops.length) lines.push('<div class="hl1"><span class="k">가격</span><span class="hn">' + esc(drops[0].name.replace(/\s*\(.*\)$/, '')) + ' <b class="pdown">▼' + man(-bChange(drops[0])) + '</b>' + (drops.length > 1 ? ' 외 ' + (drops.length - 1) + '개' : '') + '</span></div>');
+    if (ev.length) lines.push('<div class="hl1"><span class="k">행사</span><span class="hn">' + esc(ev[0].name) + ' ' + esc(ev[0].label) + '</span><b>' + esc(ev[0].tag) + '</b></div>');
+    if (memos.length) lines.push('<div class="hl1" data-go="baby" data-bv="memo"><span class="k">메모</span>' + bWhoChip(memos[0].by) + '<span class="hn">' + esc(memos[0].text.split('\n')[0]) + '</span>' + (memos.length > 1 ? '<b class="cnt">' + memos.length + '</b>' : '') + '</div>');
+    h += '<div class="card hsec cmp" data-go="baby"><h3 class="sec"><span class="st">' + IC.baby + '출산준비</span><span class="hsum">확정 ' + sm.conf.length + ' · 완료 ' + sm.done.length + ' · 후보 ' + sm.cand.length + '<span class="chev">›</span></span></h3>' +
+      '<div class="picks">' + sm.conf.slice(0, 4).map((i) => { const b = bBest(i); return '<div class="pick">' + bImg(i, 'hph') + '<div><div class="pn">' + esc(i.name.replace(/\s*\(.*\)$/, '')) + '</div><b class="num">' + (b ? man(b.p) : '확인 중') + '</b></div></div>'; }).join('') +
+      (sm.conf.length ? '' : '<div class="ts">아직 구매 확정한 품목이 없어요</div>') + '</div>' +
+      (sm.confKnown ? '<div class="ts tot">확정 ' + sm.conf.length + '개 지금 사면 <b class="num">' + man(sm.confSum) + '원</b></div>' : '') +
+      lines.join('') + '</div>';
+  }
+  const last = d.rows.filter((r) => !r.planned)[0];
+  if (last) h += '<div class="strip light" data-go="tx" data-led2="list"><span class="k">최근 거래</span><span class="hn">' + esc(last.memo || last.cat) + '</span><b class="num">' + num(last.amt) + '</b><span class="chev">›</span></div>';
   $('pgHome').innerHTML = h;
 }
 function stat(l, v, s, cls) { return '<div class="stat"><div class="lab">' + l + '</div><div class="v num ' + cls + '">' + v + '</div><div class="s">' + esc(s) + '</div></div>'; }
@@ -300,6 +362,10 @@ function renderSet() {
     '<div class="srow link" data-set="budget"><span>생활비 예산</span><span class="r num">' + (d.budget ? won(d.budget) : '정하기') + '</span></div>' +
     '<div class="srow link" data-set="save"><span>저축 계획</span><span class="r num">' + won(sp.total) + ' · ' + esc(lb[0]) + ' ' + sp.parkPct + '%</span></div>' +
     '<div class="srow link" data-set="carry"><span>지난달 고정지출 이어받기</span><span class="r">이미 있으면 건너뜀</span></div></div>';
+  const bm = (S.baby && S.baby.meta) || {};
+  h += '<div class="card"><h3 class="sec">출산준비</h3>' +
+    '<div class="srow link" data-set="due"><span>출산 예정일</span><span class="r num">' + esc(bm.dueDate || '정하기') + '</span></div>' +
+    '<div class="srow"><span>' + dot(bm.updated && Date.now() - new Date(bm.updated).getTime() < 36 * 3600e3) + '가격 확인 (맥 · 매일 오전 9시)</span><span class="r">' + (bm.updated ? ago(bm.updated) : '기록 없음') + '</span></div></div>';
   h += '<div class="card"><h3 class="sec">바로가기</h3>' +
     '<a class="srow link" href="' + SHEET_URL + '" target="_blank" rel="noopener" style="color:inherit;text-decoration:none"><span>구글 시트 열기</span><span class="r">원본 데이터</span></a></div>';
   h += '<div class="card"><h3 class="sec">연결</h3>' +
@@ -393,6 +459,338 @@ function saveSheet() {
   $('sS').onclick = async () => { $('sS').disabled = true; try { await write('setSavePlan', [S.ym, total, pct], '저장했어요'); closeSheet(); } catch (e) { $('sS').disabled = false; } };
 }
 
+
+/* ────────── 출산준비 ──────────
+   살 물건 목록 · 판매처별 가격(매일 맥이 확인) · 둘이 남기는 아이디어/메모 */
+const B_STATUS = ['후보', '구매 확정', '구매 완료', '보류'];
+const B_GROUPS = ['공식몰', '가격비교', '백화점·종합몰', '기타', '해외 (일본)'];
+const B_WHO = { '성현': 'w1', '소민': 'w2' };
+
+async function loadBaby(force) {
+  if (!S.key) return;
+  if (!force && S.babyAt && Date.now() - S.babyAt < 60000) return;
+  setLoading(true);
+  try { applyBaby(await api('babyGet')); }
+  catch (e) { if (S.tab === 'baby') { S.err = e.message; renderStatus(); } }
+  finally { setLoading(false); }
+}
+function applyBaby(d) {
+  if (!d || !d.items) return;
+  S.baby = d; S.babyAt = Date.now(); writeJ('gb.baby', d);
+  if (S.tab === 'baby' || S.tab === 'home') render();
+}
+async function bWrite(fn, args, okMsg) {
+  setLoading(true);
+  try { const d = await api(fn, ...args); applyBaby(d); if (okMsg) toast(okMsg); haptic(); return d; }
+  catch (e) { toast(e.message); throw e; } finally { setLoading(false); }
+}
+
+/* 계산 */
+function isoShift(iso, k) { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + k); return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
+function bBest(it) {
+  const kr = (it.shops || []).filter((e) => e.m !== 'JP');
+  if (!kr.length) return null;
+  const last = kr.reduce((a, e) => (e.d > a ? e.d : a), '');
+  const cut = isoShift(last, -3);
+  return kr.filter((e) => e.d >= cut).sort((a, b) => (a.o === b.o ? a.p - b.p : (a.o ? -1 : 1)))[0];
+}
+function bJp(it) {
+  const jp = (it.shops || []).filter((e) => e.m === 'JP');
+  if (!jp.length) return null;
+  const last = jp.reduce((a, e) => (e.d > a ? e.d : a), '');
+  return jp.filter((e) => e.d === last).sort((a, b) => (a.l || a.p) - (b.l || b.p))[0];
+}
+function bGroup(e) {
+  if (e.g) return e.g;
+  if (e.m === 'JP') return '해외 (일본)';
+  if (/공식/.test(e.s)) return '공식몰';
+  if (/다나와|가격비교/.test(e.s)) return '가격비교';
+  if (/롯데|신세계|현대|SSG|갤러리아/.test(e.s)) return '백화점·종합몰';
+  return '기타';
+}
+function bChange(it) {
+  const t = it.trend || [];
+  if (t.length < 2) return 0;
+  return t[t.length - 1][1] - t[t.length - 2][1];
+}
+function bCats() {
+  const seen = [];
+  ((S.baby && S.baby.items) || []).forEach((it) => { if (seen.indexOf(it.cat) < 0) seen.push(it.cat); });
+  return seen;
+}
+function bDue() {
+  const due = S.baby && S.baby.meta && S.baby.meta.dueDate;
+  if (!due) return null;
+  const left = Math.round((new Date(due + 'T00:00:00') - new Date(todayIso() + 'T00:00:00')) / 864e5);
+  const gd = 280 - left;
+  return { due, left, w: Math.floor(gd / 7), d: gd % 7 };
+}
+function bEvents() {
+  const ev = (S.baby && S.baby.meta && S.baby.meta.events) || [];
+  const now = new Date(todayIso() + 'T00:00:00'), y = now.getFullYear();
+  const mk = (m, d) => { let dt = new Date(y, m - 1, d); if (dt - now < -200 * 864e5) dt = new Date(y + 1, m - 1, d); return dt; };
+  return ev.map((s) => {
+    const m = String(s).match(/(\d{1,2})\/(\d{1,2})(?:\s*~\s*(\d{1,2})\/(\d{1,2}))?/);
+    if (!m) return null;
+    const st = mk(+m[1], +m[2]), en = m[3] ? mk(+m[3], +m[4]) : st;
+    const name = String(s).replace(m[0], '').replace(/\s*약\s*$/, '').trim();
+    return { name, st, en, label: (st.getMonth() + 1) + '/' + st.getDate() + (m[3] ? '~' + (en.getMonth() + 1) + '/' + en.getDate() : '') + (/약/.test(s) ? ' (예상)' : '') };
+  }).filter((e) => e && e.en >= now).sort((a, b) => a.st - b.st)
+    .map((e) => { const dd = Math.round((e.st - now) / 864e5); return Object.assign(e, { dd, tag: dd <= 0 ? '진행 중' : 'D-' + dd }); });
+}
+function bSummary() {
+  const items = (S.baby && S.baby.items) || [];
+  const conf = items.filter((i) => i.status === '구매 확정'), done = items.filter((i) => i.status === '구매 완료');
+  const cand = items.filter((i) => i.status === '후보');
+  let confSum = 0, confKnown = 0;
+  conf.forEach((i) => { const b = bBest(i); if (b) { confSum += b.p; confKnown++; } });
+  const paid = done.reduce((a, i) => a + (i.paid || 0), 0);
+  return { items, conf, done, cand, confSum, confKnown, paid };
+}
+function bImg(it, cls) {
+  if (!it.img) return '<div class="' + cls + ' noimg">' + IC.baby + '</div>';
+  const src = /^https?:/.test(it.img) ? it.img : it.img;
+  return '<img class="' + cls + '" src="' + esc(src) + '" alt="" loading="lazy">';
+}
+function bWhoChip(n) { return '<span class="who ' + (B_WHO[n] || 'w0') + '">' + esc(n || '?') + '</span>'; }
+function bSpark(t) {
+  if (!t || !t.length) return '';
+  if (t.length === 1) return '<div class="bsp1">가격 기록 ' + esc(t[0][0].slice(5).replace('-', '/')) + '부터 쌓이는 중</div>';
+  const W = 300, H = 44, p = 4; let mn = Infinity, mx = -Infinity;
+  t.forEach((x) => { mn = Math.min(mn, x[1]); mx = Math.max(mx, x[1]); });
+  if (mx === mn) { mx += 1; mn -= 1; }
+  const X = (i) => p + (W - 2 * p) * i / (t.length - 1), Y = (v) => p + (H - 2 * p) * (1 - (v - mn) / (mx - mn));
+  const dd = t.map((x, i) => (i ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(x[1]).toFixed(1)).join(' ');
+  return '<svg class="bsp" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none"><path d="' + dd + '" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>' +
+    '<div class="bspl"><span>' + esc(t[0][0].slice(5).replace('-', '/')) + '</span><span>최저 ' + man(Math.min(...t.map((x) => x[1]))) + '</span><span>' + esc(t[t.length - 1][0].slice(5).replace('-', '/')) + '</span></div>';
+}
+
+/* 화면 */
+function renderBaby() {
+  const pg = $('pgBaby');
+  if (!S.baby) {
+    pg.innerHTML = '<div class="card"><div class="skel" style="width:40%"></div><div class="skel" style="height:34px;width:70%"></div><div class="skel"></div></div>';
+    return;
+  }
+  const sm = bSummary(), due = bDue(), ev = bEvents();
+  const memos = S.baby.memos || [], openM = memos.filter((m) => m.st === '열림');
+  let h = '<div class="card bhero">' +
+    (due ? '<div class="lab">짹짹이 만나기까지</div><div class="big num">' + (due.left > 0 ? 'D-' + due.left : due.left === 0 ? 'D-day' : 'D+' + (-due.left)) + '</div>' +
+      '<div class="sub">예정일 ' + esc(due.due.slice(5).replace('-', '/')) + (due.left > 0 && due.w >= 0 ? ' · 임신 ' + due.w + '주 ' + due.d + '일' : '') + '</div>'
+      : '<div class="lab">출산준비</div><div class="sub link" data-set="due">예정일을 넣으면 D-day가 보여요 ›</div>') +
+    '<div class="grid3">' +
+    '<div><div class="lab">구매 확정</div><div class="v num">' + sm.conf.length + '개</div><div class="s">' + (sm.confKnown ? '지금 최저 ' + man(sm.confSum) : '가격 확인 중') + '</div></div>' +
+    '<div><div class="lab">구매 완료</div><div class="v num">' + sm.done.length + '개</div><div class="s">' + (sm.paid ? man(sm.paid) + '원 결제' : '-') + '</div></div>' +
+    '<div><div class="lab">후보</div><div class="v num">' + sm.cand.length + '개</div><div class="s">비교 중</div></div></div></div>';
+
+  h += '<div class="seg pseg" id="bSeg"><button data-bview="list" class="' + (S.bview === 'list' ? 'on' : '') + '">살 것 목록</button>' +
+    '<button data-bview="memo" class="' + (S.bview === 'memo' ? 'on' : '') + '">아이디어·메모' + (openM.length ? ' <b class="cnt">' + openM.length + '</b>' : '') + '</button></div>';
+
+  if (S.bview === 'memo') h += bMemoView(memos);
+  else h += bListView(sm.items, ev);
+  const up = S.baby.meta && S.baby.meta.updated;
+  h += '<div class="foot">가격은 매일 오전 9시에 맥이 확인해요' + (up ? ' · 마지막 ' + esc(ago(up)) : '') + '</div>';
+  pg.innerHTML = h;
+}
+
+function bListView(items, ev) {
+  const cats = bCats();
+  const chips = [['all', '전체'], ['pick', '확정·완료']].concat(cats.map((c) => [c, c]));
+  let h = '<div class="chips bchips">' + chips.map((c) => '<button class="chip' + (S.bcat === c[0] ? ' on' : '') + '" data-bcat="' + esc(c[0]) + '">' + esc(c[1]) + '</button>').join('') + '</div>';
+  const rank = (i) => ({ '구매 확정': 0, '구매 완료': 1, '후보': 2, '보류': 3 }[i.status] ?? 2);
+  let list = items.filter((i) => S.bcat === 'all' || (S.bcat === 'pick' ? (i.status === '구매 확정' || i.status === '구매 완료') : i.cat === S.bcat));
+  list = list.slice().sort((a, b) => rank(a) - rank(b) || a.ord - b.ord);
+  if (!list.length) h += '<div class="empty">여기에 해당하는 품목이 없어요</div>';
+  const memos = (S.baby.memos || []);
+  h += list.map((it) => bCard(it, memos.filter((m) => m.item === it.id).length)).join('');
+  if (ev.length && S.bcat === 'all') {
+    h += '<div class="card"><h3 class="sec">다가오는 행사 <small>싸게 살 기회</small></h3>' +
+      ev.slice(0, 5).map((e) => '<div class="srow"><span>' + esc(e.name) + '</span><span class="r">' + esc(e.label) + ' · <b class="' + (e.dd <= 7 ? 'hot' : '') + '">' + e.tag + '</b></span></div>').join('') + '</div>';
+  }
+  h += '<button class="addrow" data-badd="item">+ 살 것 추가하기</button>';
+  return h;
+}
+
+function bCard(it, nMemo) {
+  const b = bBest(it), jp = bJp(it), chg = bChange(it);
+  const cls = it.status === '구매 확정' ? ' conf' : it.status === '구매 완료' ? ' done' : it.status === '보류' ? ' hold' : '';
+  const badge = it.status !== '후보' ? '<span class="bbadge' + cls + '">' + esc(it.status) + '</span>' : '';
+  let pr;
+  if (it.status === '구매 완료' && it.paid) pr = '<div class="bpr num">' + won(it.paid) + ' <span class="chg flat">결제</span></div>';
+  else if (b) {
+    let d = '';
+    if (chg) d = '<span class="chg ' + (chg < 0 ? 'pdown' : 'pup') + '">' + (chg < 0 ? '▼' : '▲') + ' ' + num(Math.abs(chg)) + '</span>';
+    else if (it.ref && b.p !== it.ref) { const pc = (b.p - it.ref) / it.ref * 100; d = '<span class="chg ' + (pc < 0 ? 'pdown' : 'pup') + '">기준가 대비 ' + (pc > 0 ? '+' : '') + pc.toFixed(1) + '%</span>'; }
+    pr = '<div class="bpr num">' + won(b.p) + ' ' + d + '</div><div class="bsrc">' + esc(b.s) + ' · ' + esc(b.d.slice(5).replace('-', '/')) + (b.o ? '' : ' · <b class="warn">정품 미확인</b>') + '</div>';
+  } else pr = '<div class="bpr na">가격 확인 전</div><div class="bsrc">다음 가격 확인 때 채워져요</div>';
+  let h = '<div class="card bcard' + cls + '"><div class="btop" data-bitem="' + esc(it.id) + '">' + bImg(it, 'bph') +
+    '<div class="bbody"><div class="bnm">' + badge + esc(it.name) + '</div>' + pr +
+    (it.ref ? '<div class="bsrc">기준가 ' + won(it.ref) + '</div>' : '') +
+    (it.note ? '<div class="bnote">' + esc(it.note) + '</div>' : '') +
+    (nMemo ? '<div class="bsrc">메모 ' + nMemo + '개</div>' : '') + '</div></div>';
+  h += bSpark(it.trend);
+  if (jp) {
+    const gap = b && jp.l ? b.p - jp.l : 0;
+    h += '<div class="bjp">일본 최저 ' + esc(jp.s) + ' ' + (jp.jpy ? num(jp.jpy) + '엔' : '') + (jp.l ? ' · 배대지 포함 약 <b>' + won(jp.l) + '</b>' : '') +
+      (gap > 0 ? ' · 한국보다 ' + man(gap) + '원 저렴' : '') + '</div>';
+  }
+  h += bShops(it);
+  return h + '</div>';
+}
+
+function bShops(it) {
+  const shops = it.shops || [];
+  const by = {}; B_GROUPS.forEach((g) => { by[g] = []; });
+  shops.forEach((e) => { const g = bGroup(e); (by[g] = by[g] || []).push(e); });
+  let inner = '';
+  Object.keys(by).forEach((g) => {
+    const es = by[g].slice().sort((a, b) => (a.l || a.p) - (b.l || b.p));
+    let li = es.map((e) => {
+      const pr = (e.jpy ? num(e.jpy) + '엔 · 총 ' : '') + won(e.l || e.p);
+      const nm = esc(e.s) + (e.o ? '' : ' <b class="warn">*</b>');
+      return '<li><span class="sn">' + (e.u ? '<a href="' + esc(e.u) + '" target="_blank" rel="noopener">' + nm + ' ↗</a>' : nm) + '</span><span class="sp num">' + pr + '</span><span class="sd">' + esc(e.d.slice(5).replace('-', '/')) + '</span>' +
+        (e.n ? '<span class="snote">' + esc(e.n) + '</span>' : '') + '</li>';
+    }).join('');
+    (it.ch || []).filter((c) => c.group === g).forEach((c) => {
+      const key = String(c.name).split(' (')[0];
+      if (es.some((e) => e.s.indexOf(key) >= 0 || String(c.name).indexOf(e.s) >= 0)) return;
+      li += '<li class="nop"><span class="sn"><a href="' + esc(c.url) + '" target="_blank" rel="noopener">' + esc(c.name) + ' ↗</a></span><span class="sp na">미확인</span><span class="sd"></span></li>';
+    });
+    if (li) inner += '<div class="gt">' + esc(g) + '</div><ul>' + li + '</ul>';
+  });
+  if (!inner) return '';
+  const kr = shops.filter((e) => e.m !== 'JP').map((e) => e.p);
+  return '<details class="bshops" data-bshops="' + esc(it.id) + '"' + (S.bopen[it.id] ? ' open' : '') + '><summary>판매처별 현재가 (' + shops.length + '곳 확인' + (kr.length ? ' · 최저 ' + won(Math.min(...kr)) : '') + ')</summary>' +
+    inner + '<div class="sh">이름을 누르면 판매처로 이동해요 · * 정품 판매처 여부 미확인</div></details>';
+}
+
+function bMemoView(memos) {
+  const items = S.baby.items || [];
+  const nameOf = (id) => { const i = items.find((x) => x.id === id); return i ? i.name : ''; };
+  let h = '<div class="card compose"><textarea id="mTxt" rows="3" placeholder="떠오른 아이디어, 사고 싶은 것, 의견을 자유롭게 남겨요"></textarea>' +
+    '<div class="crow"><span class="lab">' + esc(S.baby.me || '') + ' 이름으로 남겨요</span><button class="btn primary" id="mSend">남기기</button></div></div>';
+  if (!memos.length) return h + '<div class="empty">아직 메모가 없어요. 첫 아이디어를 남겨보세요</div>';
+  h += memos.map((m) => {
+    const it = m.item ? nameOf(m.item) : '';
+    const st = m.st === '반영됨' ? '<span class="tag auto">목록에 추가됨</span>' : m.st === '완료' ? '<span class="tag pl">완료</span>' : '';
+    return '<div class="card memo' + (m.st !== '열림' ? ' closed' : '') + '"><div class="mh">' + bWhoChip(m.by) + '<span class="mt">' + esc(ago(m.at)) + '</span>' + st + '</div>' +
+      '<div class="mx">' + esc(m.text).replace(/\n/g, '<br>') + '</div>' +
+      (it ? '<div class="mi" data-bitem="' + esc(m.item) + '">관련: ' + esc(it) + ' ›</div>' : '') +
+      '<div class="ma">' + (m.st === '열림' ? '<button class="btn" data-mact="add" data-mid="' + esc(m.id) + '">목록에 추가</button><button class="btn" data-mact="done" data-mid="' + esc(m.id) + '">완료</button>' :
+        '<button class="btn" data-mact="open" data-mid="' + esc(m.id) + '">다시 열기</button>') +
+      '<button class="btn ghost" data-mact="del" data-mid="' + esc(m.id) + '">삭제</button></div></div>';
+  }).join('');
+  return h;
+}
+
+/* 편집 창 */
+function bItemSheet(id) {
+  const it = (S.baby.items || []).find((x) => x.id === id); if (!it) return;
+  const memos = (S.baby.memos || []).filter((m) => m.item === id);
+  const st = { status: it.status, paid: it.paid, cat: it.cat };
+  const cats = bCats(); if (cats.indexOf('기타') < 0) cats.push('기타');
+  openSheet('<h2>' + esc(it.name) + '</h2>' +
+    '<div class="fl">상태</div><div class="seg" id="iSt">' + B_STATUS.map((s) => '<button data-s="' + s + '" class="' + (st.status === s ? 'on' : '') + '">' + s + '</button>').join('') + '</div>' +
+    '<div id="iPaidW"' + (st.status === '구매 완료' ? '' : ' hidden') + '><div class="fl">실제 결제 금액</div><input class="inp num" id="iPaid" inputmode="numeric" placeholder="₩0" value="' + (it.paid ? won(it.paid) : '') + '"></div>' +
+    '<div class="fl">메모 · 의견 ' + (memos.length ? memos.length + '개' : '') + '</div>' +
+    (memos.length ? '<div class="imemos">' + memos.map((m) => '<div class="im">' + bWhoChip(m.by) + '<span>' + esc(m.text) + '</span><span class="mt">' + esc(ago(m.at)) + '</span></div>').join('') + '</div>' : '') +
+    '<div class="irow"><input class="inp" id="iMemo" placeholder="이 품목에 대한 의견 남기기"><button class="btn" id="iMemoBtn">남기기</button></div>' +
+    '<details class="iedit"><summary>이름 · 카테고리 · 기준가 고치기</summary>' +
+    '<div class="fl">이름</div><input class="inp" id="iName" value="' + esc(it.name) + '">' +
+    '<div class="fl">카테고리</div><div class="wrapchips" id="iCat">' + cats.map((c) => '<button class="chip' + (c === st.cat ? ' on' : '') + '" data-c="' + esc(c) + '">' + esc(c) + '</button>').join('') + '</div>' +
+    '<div class="fl">기준가</div><input class="inp num" id="iRef" inputmode="numeric" value="' + (it.ref ? won(it.ref) : '') + '" placeholder="비교 기준 가격 (선택)">' +
+    '<div class="fl">설명</div><input class="inp" id="iNote" value="' + esc(it.note) + '" placeholder="색상, 구성 등 (선택)">' +
+    '<div class="fl">판매처 링크 추가</div><input class="inp" id="iUrl" placeholder="https:// (선택)"></details>' +
+    '<div class="sheet-acts"><button class="btn" id="iC">닫기</button><button class="btn primary" id="iS">저장</button></div>');
+  const money = (el) => { el.oninput = () => { const s = el.value.replace(/[^\d]/g, ''); el.value = s ? won(Number(s)) : ''; }; };
+  money($('iPaid')); money($('iRef'));
+  $('iSt').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; st.status = b.dataset.s; [...$('iSt').children].forEach((x) => x.classList.toggle('on', x === b)); $('iPaidW').hidden = st.status !== '구매 완료'; };
+  $('iCat').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; st.cat = b.dataset.c; [...$('iCat').children].forEach((x) => x.classList.toggle('on', x === b)); };
+  $('iC').onclick = closeSheet;
+  $('iMemoBtn').onclick = async () => {
+    const t = $('iMemo').value.trim(); if (!t) return;
+    $('iMemoBtn').disabled = true;
+    try { await bWrite('babyAddMemo', [t, id], '메모를 남겼어요'); bItemSheet(id); } catch (e) { $('iMemoBtn').disabled = false; }
+  };
+  $('iS').onclick = async () => {
+    const btn = $('iS'); btn.disabled = true; btn.textContent = '저장 중…';
+    const v = (x) => { const s = $(x).value.replace(/[^\d]/g, ''); return s ? Number(s) : null; };
+    try {
+      const paid = st.status === '구매 완료' ? v('iPaid') : it.paid;
+      if (st.status !== it.status || paid !== it.paid) await bWrite('babySetStatus', [id, st.status, paid == null ? '' : paid]);
+      const f = {}, nm = $('iName').value.trim(), ref = v('iRef'), note = $('iNote').value.trim(), url = $('iUrl').value.trim();
+      if (nm && nm !== it.name) f.name = nm;
+      if (st.cat !== it.cat) f.cat = st.cat;
+      if (ref !== it.ref) f.ref = ref == null ? '' : ref;
+      if (note !== (it.note || '')) f.note = note;
+      if (url) { if (!/^https?:\/\//.test(url)) { toast('링크는 https:// 로 시작해야 해요'); btn.disabled = false; btn.textContent = '저장'; return; } f.url = url; }
+      if (Object.keys(f).length) await bWrite('babyEditItem', [id, f]);
+      toast('저장했어요'); closeSheet();
+    } catch (e) { btn.disabled = false; btn.textContent = '저장'; }
+  };
+}
+
+function bAddSheet(pre) {
+  pre = pre || {};
+  const cats = bCats(); if (cats.indexOf('기타') < 0) cats.push('기타');
+  const st = { cat: pre.cat || (S.bcat !== 'all' && S.bcat !== 'pick' ? S.bcat : '') };
+  openSheet('<h2>살 것 추가</h2>' + (pre.memoText ? '<div class="lab" style="margin:-6px 0 10px">메모: ' + esc(pre.memoText.slice(0, 80)) + '</div>' : '') +
+    '<div class="fl">이름</div><input class="inp" id="aName" placeholder="예: 젖병 소독기" value="' + esc(pre.name || '') + '">' +
+    '<div class="fl">카테고리</div><div class="wrapchips" id="aCat">' + cats.map((c) => '<button class="chip' + (c === st.cat ? ' on' : '') + '" data-c="' + esc(c) + '">' + esc(c) + '</button>').join('') +
+    '<button class="chip" data-new="1">+ 새 카테고리</button></div>' +
+    '<input class="inp" id="aNewCat" placeholder="새 카테고리 이름 (예: 수유)" hidden style="margin-top:8px">' +
+    '<div class="fl">기준가 (선택)</div><input class="inp num" id="aRef" inputmode="numeric" placeholder="₩0">' +
+    '<div class="fl">참고 링크 (선택)</div><input class="inp" id="aUrl" placeholder="https://">' +
+    '<div class="fl">설명 (선택)</div><input class="inp" id="aNote" placeholder="원하는 색상, 구성 등">' +
+    '<div class="lab" style="margin-top:12px">추가하면 다음 날부터 매일 가격을 같이 확인해요</div>' +
+    '<div class="sheet-acts"><button class="btn" id="aC">취소</button><button class="btn primary" id="aS">추가</button></div>');
+  $('aRef').oninput = () => { const s = $('aRef').value.replace(/[^\d]/g, ''); $('aRef').value = s ? won(Number(s)) : ''; };
+  $('aCat').onclick = (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    [...$('aCat').children].forEach((x) => x.classList.toggle('on', x === b));
+    if (b.dataset.new) { st.cat = ''; $('aNewCat').hidden = false; $('aNewCat').focus(); } else { st.cat = b.dataset.c; $('aNewCat').hidden = true; }
+  };
+  $('aC').onclick = closeSheet;
+  $('aS').onclick = async () => {
+    const name = $('aName').value.trim(); if (!name) { toast('이름을 적어주세요'); return; }
+    const cat = st.cat || $('aNewCat').value.trim() || '기타';
+    const url = $('aUrl').value.trim();
+    if (url && !/^https?:\/\//.test(url)) { toast('링크는 https:// 로 시작해야 해요'); return; }
+    const s = $('aRef').value.replace(/[^\d]/g, '');
+    $('aS').disabled = true;
+    try {
+      await bWrite('babyAddItem', [{ name, cat, ref: s ? Number(s) : '', url, note: $('aNote').value.trim(), memo: pre.memo || '' }], '목록에 추가했어요');
+      closeSheet(); S.bview = 'list'; S.bcat = 'all'; render();
+    } catch (e) { $('aS').disabled = false; }
+  };
+  setTimeout(() => { if (!pre.name) $('aName').focus(); }, 300);
+}
+
+function bPlusSheet() {
+  openSheet('<h2>무엇을 남길까요?</h2>' +
+    '<button class="srow link big" id="pMemo"><span>아이디어 · 메모 남기기<br><small class="lab">사고 싶은 것, 의견, 떠오른 생각</small></span><span class="r"></span></button>' +
+    '<button class="srow link big" id="pItem"><span>살 것 목록에 추가<br><small class="lab">매일 가격을 같이 확인해요</small></span><span class="r"></span></button>');
+  $('pMemo').onclick = () => { closeSheet(); S.bview = 'memo'; render(); setTimeout(() => $('mTxt') && $('mTxt').focus(), 250); };
+  $('pItem').onclick = () => { closeSheet(); setTimeout(() => bAddSheet(), 200); };
+}
+
+function dueSheet() {
+  const cur = (S.baby && S.baby.meta && S.baby.meta.dueDate) || '';
+  openSheet('<h2>출산 예정일</h2><div class="lab" style="margin:-6px 0 10px">홈과 출산준비 탭에 D-day와 임신 주수가 보여요</div>' +
+    '<input class="inp" id="dD" type="date" value="' + esc(cur) + '">' +
+    '<div class="sheet-acts"><button class="btn" id="dC">취소</button><button class="btn primary" id="dS">저장</button></div>');
+  $('dC').onclick = closeSheet;
+  $('dS').onclick = async () => { $('dS').disabled = true; try { await bWrite('babySetMeta', [{ dueDate: $('dD').value }], '저장했어요'); closeSheet(); if (S.tab === 'set') render(); } catch (e) { $('dS').disabled = false; } };
+}
+
+async function bMemoAct(act, id) {
+  const m = (S.baby.memos || []).find((x) => x.id === id); if (!m) return;
+  if (act === 'add') { bAddSheet({ memo: id, memoText: m.text, name: m.text.split('\n')[0].slice(0, 40) }); return; }
+  if (act === 'del' && !confirm('이 메모를 지울까요?')) return;
+  const st = { done: '완료', open: '열림', del: '삭제' }[act];
+  await bWrite('babyMemoSet', [id, st], act === 'del' ? '지웠어요' : act === 'done' ? '완료로 표시했어요' : '다시 열었어요');
+}
+
 /* ────────── 이벤트 ────────── */
 function findRow(row) { return S.data && S.data.rows.find((r) => r.row === Number(row)); }
 function go(tab) {
@@ -401,23 +799,43 @@ function go(tab) {
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('on', t.dataset.t === tab));
   window.scrollTo(0, 0);
   render();
+  if (tab === 'baby' || tab === 'home') loadBaby();
 }
 
 function bind() {
   $('tabs').onclick = (e) => { const t = e.target.closest('.tab'); if (t) { haptic(); go(t.dataset.t); } };
   $('prev').onclick = () => loadMonth(ymShift(S.ym, -1));
   $('next').onclick = () => loadMonth(ymShift(S.ym, 1));
-  $('refresh').onclick = () => { S.err = ''; loadMonth(S.ym, true); };
-  $('addBtn').onclick = () => txSheet(null);
+  $('refresh').onclick = () => { S.err = ''; if (S.tab === 'baby') loadBaby(true); else { loadMonth(S.ym, true); if (S.tab === 'home') loadBaby(true); } };
+  $('addBtn').onclick = () => (S.tab === 'baby' ? bPlusSheet() : txSheet(null));
+  $('ledSeg').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; S.led = b.dataset.led; window.scrollTo(0, 0); renderLedger(); };
+  document.addEventListener('toggle', (e) => { const t = e.target; if (t.dataset && t.dataset.bshops) S.bopen[t.dataset.bshops] = t.open; }, true);
   $('scrim').onclick = closeSheet;
   $('q').oninput = () => { S.q = $('q').value; renderTx(); };
   $('txChips').onclick = (e) => { const b = e.target.closest('.chip'); if (!b) return; S.filter = b.dataset.f; S.cat = ''; renderTx(); };
   document.addEventListener('click', async (e) => {
-    const el = e.target.closest('[data-ok],[data-edit],[data-cat],[data-go],[data-ym],[data-asset],[data-set]');
+    if (e.target.closest('a,summary')) return;
+    if (e.target.id === 'mSend') {
+      const t = $('mTxt').value.trim(); if (!t) { toast('내용을 적어주세요'); return; }
+      e.target.disabled = true;
+      try { await bWrite('babyAddMemo', [t, ''], '메모를 남겼어요'); } catch (err) { e.target.disabled = false; }
+      return;
+    }
+    const el = e.target.closest('[data-ok],[data-edit],[data-cat],[data-go],[data-ym],[data-asset],[data-set],[data-led],[data-bview],[data-bcat],[data-bitem],[data-mact],[data-badd]');
     if (!el || el.closest('#sheet')) return;
+    if (el.dataset.led) { S.led = el.dataset.led; window.scrollTo(0, 0); renderLedger(); return; }
+    if (el.dataset.bview) { S.bview = el.dataset.bview; render(); return; }
+    if (el.dataset.bcat) { S.bcat = el.dataset.bcat; render(); return; }
+    if (el.dataset.bitem) { bItemSheet(el.dataset.bitem); return; }
+    if (el.dataset.mact) { bMemoAct(el.dataset.mact, el.dataset.mid); return; }
+    if (el.dataset.badd) { bAddSheet(); return; }
+    if (el.dataset.set === 'due') { dueSheet(); return; }
+    if (el.dataset.go === 'txrev') { S.led = 'list'; S.filter = 'review'; S.cat = ''; go('tx'); return; }
+    if (el.dataset.go && el.dataset.led2) { S.led = el.dataset.led2; }
+    if (el.dataset.go && el.dataset.bv) { S.bview = el.dataset.bv; }
     if (el.dataset.ok) { el.disabled = true; await write('confirmTx', [S.ym, Number(el.dataset.ok)], '확인했어요 · 다음부터 자동 분류'); return; }
     if (el.dataset.edit) { const r = findRow(el.dataset.edit); if (r) txSheet(r); return; }
-    if (el.dataset.cat) { S.cat = el.dataset.cat; S.filter = 'all'; go('tx'); return; }
+    if (el.dataset.cat) { S.cat = el.dataset.cat; S.filter = 'all'; S.led = 'list'; go('tx'); return; }
     if (el.dataset.go) { go(el.dataset.go); return; }
     if (el.dataset.ym) { loadMonth(el.dataset.ym); return; }
     if (el.dataset.asset) {
@@ -433,6 +851,7 @@ function bind() {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && !S.key) { $('gBtn').disabled = false; claimLogin(); }
     if (document.visibilityState === 'visible' && S.key && S.ym && (!S.fetchedAt[S.ym] || Date.now() - S.fetchedAt[S.ym] > 60000)) loadMonth(S.ym, true);
+    if (document.visibilityState === 'visible' && S.key) loadBaby();
   });
   window.addEventListener('online', () => { S.err = ''; loadMonth(S.ym, true); });
   $('gBtn').onclick = googleLogin;
@@ -452,6 +871,7 @@ async function connect(k, how) {
     S.cfg = d.config; writeJ('gb.cfg', d.config);
     $('connect').hidden = true;
     applyMonth(d.month);
+    loadBaby(true);
     toast(how === 'google' ? (S.user ? S.user + ' 계정으로 로그인했어요' : '로그인했어요') : '연결됐어요');
   } catch (e) { $('keyErr').textContent = e.message === 'unauthorized' ? '연결 코드가 맞지 않아요.' : e.message; S.key = ''; }
   finally { $('keyBtn').disabled = false; $('gBtn').disabled = false; }
@@ -511,8 +931,8 @@ async function claimLogin() {
 }
 function disconnect(msg) {
   clearKey(); localStorage.removeItem('gb.user');
-  Object.keys(localStorage).filter((k) => k.indexOf('gb.m.') === 0 || k === 'gb.cfg').forEach((k) => localStorage.removeItem(k));
-  S.key = ''; S.data = null; S.user = '';
+  Object.keys(localStorage).filter((k) => k.indexOf('gb.m.') === 0 || k === 'gb.cfg' || k === 'gb.baby').forEach((k) => localStorage.removeItem(k));
+  S.key = ''; S.data = null; S.user = ''; S.baby = null; S.babyAt = 0;
   $('keyErr').textContent = msg || '';
   $('connect').hidden = false;
 }
