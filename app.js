@@ -2,7 +2,7 @@
  * 데이터는 구글 시트(Apps Script API)에 있고, 이 앱은 화면만 담당해요.
  * 열 때는 폰에 저장해 둔 마지막 화면을 바로 보여주고, 뒤에서 최신 데이터를 받아와요. */
 'use strict';
-const VERSION = '1.2.1';
+const VERSION = '1.3.0';
 const API = 'https://script.google.com/macros/s/AKfycbyxgtCCZJEixEnxgHr_g-XbBrFy4j7oqd0GTJ7GK29Z3okMu5Kk8JN_FBFjkBSBsMXkdg/exec';
 const SHEET_URL = 'https://docs.google.com/spreadsheets/d/1O9fVSgn2GEPlz2eURBd0J_kQzQH5vuwphPRmo1yAco4/edit';
 const GUBUN_ORDER = ['변동', '고정', '수입', '회사경비', '저축'];
@@ -226,6 +226,8 @@ function renderLedgerSum() {
       d.cats.slice(0, 6).map((c) => '<div class="cat" data-cat="' + esc(c.name) + '"><span>' + esc(c.name) + '</span><div class="b"><div style="width:' + (c.pctMax * 100) + '%"></div></div><span class="v num">' + man(c.amt) + '</span></div>').join('') + '</div>';
   }
 
+  h += tripCard(d.trips || []);
+
   if (trend.length) {
     h += '<div class="card"><h3 class="sec">최근 6개월 <span class="legend"><span><i style="background:var(--good)"></i>수입</span><span><i style="background:var(--accent)"></i>지출</span></span></h3><div class="trend">' +
       trend.map((t) => '<div class="tcol' + (t.m === S.ym ? ' on' : '') + '" data-ym="' + t.m + '"><div class="tbars"><i style="height:' + (t.income / tmax * 96) + 'px"></i><i class="sp" style="height:' + ((t.fixed + t.variable) / tmax * 96) + 'px"></i></div><span>' + Number(t.m.slice(5)) + '월</span></div>').join('') +
@@ -393,8 +395,9 @@ function closeSheet() { $('sheet').classList.remove('on'); $('scrim').hidden = t
 function txSheet(r) {
   const cfg = S.cfg || { catsBy: {}, pays: [] };
   const isNew = !r;
-  const t = r ? { date: r.iso, gubun: r.gubun, cat: r.cat, memo: r.memo, pay: r.pay, amt: r.amt }
-    : { date: todayIso(), gubun: '변동', cat: '', memo: '', pay: (cfg.pays || [])[0] || '', amt: '' };
+  const trips = ((S.data && S.data.trips) || []).map((x) => x.name);
+  const t = r ? { date: r.iso, gubun: r.gubun, cat: r.cat, memo: r.memo, pay: r.pay, amt: r.amt, trip: r.trip || '' }
+    : { date: todayIso(), gubun: '변동', cat: '', memo: '', pay: (cfg.pays || [])[0] || '', amt: '', trip: '' };
   const st = { ...t };
   const catsFor = (g) => { const l = ((cfg.catsBy || {})[g] || cfg.cats || []).slice(); if (st.cat && l.indexOf(st.cat) < 0 && g === t.gubun) l.unshift(st.cat); return l; };
   const draw = () => {
@@ -407,12 +410,14 @@ function txSheet(r) {
       '<div class="fl">내용</div><input class="inp" id="fM" value="' + esc(st.memo) + '" placeholder="예: 마트 장보기">' +
       '<div class="fl">날짜</div><input class="inp" id="fD" type="date" value="' + esc(st.date) + '">' +
       '<div class="fl">결제수단</div><div class="wrapchips" id="fP">' + (cfg.pays || []).map((p) => '<button class="chip' + (st.pay === p ? ' on' : '') + '" data-p="' + esc(p) + '">' + esc(p) + '</button>').join('') + '</div>' +
+      (!isNew && trips.length ? '<div class="fl">여행</div><div class="wrapchips" id="fT">' + [''].concat(trips).map((n) => '<button class="chip' + (st.trip === n ? ' on' : '') + '" data-t="' + esc(n) + '">' + esc(n || '여행 아님') + '</button>').join('') + '</div>' : '') +
       '<div class="sheet-acts">' + (isNew ? '' : '<button class="btn danger" id="fDel">삭제</button>') + '<button class="btn" id="fCancel">취소</button><button class="btn primary" id="fSave">저장</button></div>');
     const amt = $('fAmt');
     amt.oninput = () => { const v = amt.value.replace(/[^\d-]/g, ''); st.amt = v === '' ? '' : Number(v); amt.value = v === '' ? '' : won(st.amt); };
     $('fG').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; sync(); st.gubun = b.dataset.g; if (catsFor(st.gubun).indexOf(st.cat) < 0) st.cat = ''; draw(); };
     $('fC').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; st.cat = b.dataset.c; [...$('fC').children].forEach((x) => x.classList.toggle('on', x === b)); };
     $('fP').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; st.pay = b.dataset.p; [...$('fP').children].forEach((x) => x.classList.toggle('on', x === b)); };
+    if ($('fT')) $('fT').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; st.trip = b.dataset.t; [...$('fT').children].forEach((x) => x.classList.toggle('on', x === b)); };
     $('fCancel').onclick = closeSheet;
     if ($('fDel')) $('fDel').onclick = async () => {
       if (!confirm('이 거래를 삭제할까요?')) return;
@@ -427,7 +432,10 @@ function txSheet(r) {
       try {
         const targetYm = st.date ? st.date.slice(0, 7) : S.ym;
         if (isNew) await write('addTransaction', [targetYm, payload], '추가했어요');
-        else await write('updateTx', [S.ym, r.row, payload], '저장했어요');
+        else {
+          await write('updateTx', [S.ym, r.row, payload], st.trip !== t.trip ? '' : '저장했어요');
+          if (st.trip !== t.trip) await write('setTxTrip', [S.ym, r.row, st.trip], st.trip ? '\'' + st.trip + '\'에 묶었어요' : '여행에서 뺐어요');
+        }
         closeSheet();
         if (isNew && targetYm !== S.ym) loadMonth(targetYm, true);
       } catch (e) { btn.disabled = false; btn.textContent = '저장'; }
@@ -436,6 +444,67 @@ function txSheet(r) {
   };
   const sync = () => { if ($('fM')) st.memo = $('fM').value; if ($('fD')) st.date = $('fD').value; };
   draw();
+}
+
+/* ────────── 여행 ──────────
+   여행별로 얼마 썼는지 모아봐요. 여행비도 변동지출 · 예산에는 그대로 들어가요.
+   여행 기간 안의 변동지출은 자동으로 묶이고, 미리 낸 항공권 · 숙소는 거래 수정에서 여행을 골라 묶어요. */
+function tripDates(t) {
+  const f = (s) => (s ? Number(s.slice(5, 7)) + '/' + Number(s.slice(8, 10)) : '');
+  return t.start ? (t.start.slice(0, 4) !== String(new Date().getFullYear()) ? t.start.slice(0, 4) + '년 ' : '') + f(t.start) + (t.end && t.end !== t.start ? ' ~ ' + f(t.end) : '') : '기간 미정';
+}
+function tripCard(trips) {
+  let h = '<div class="card"><h3 class="sec">여행 <button data-tripadd="1">+ 여행 추가</button></h3>';
+  if (!trips.length) return h + '<div class="empty">여행을 추가하면 여행지별로 쓴 돈을 모아볼 수 있어요</div></div>';
+  return h + trips.map((x) => '<div class="trip" data-trip="' + esc(x.name) + '"><div class="l"><div class="nm">' + esc(x.name) + '</div>' +
+    '<div class="m">' + esc(tripDates(x)) + ' · ' + x.count + '건</div></div><div class="a num">' + man(x.total) + '</div></div>').join('') + '</div>';
+}
+async function tripSheet(name) {
+  openSheet('<h2>' + esc(name) + '</h2><div class="skel"></div><div class="skel" style="width:60%"></div>');
+  let d;
+  try { d = await api('getTrip', name); } catch (e) { closeSheet(); toast(e.message); return; }
+  const t = d.trip, max = Math.max(1, ...d.cats.map((c) => c.amt));
+  const html = '<h2>' + esc(t.name) + '</h2>' +
+    '<div class="lab" style="margin:-6px 0 4px">' + esc(tripDates(t)) + (t.memo ? ' · ' + esc(t.memo) : '') + '</div>' +
+    '<div class="big num">' + won(d.total) + '</div>' +
+    '<div class="sub" style="margin-top:-6px">' + d.rows.length + '건' + (d.before ? ' · 출발 전에 미리 낸 돈 ' + man(d.before) + ' 포함' : '') + (d.company ? ' · 회사경비 ' + man(d.company) + ' 제외' : '') + '</div>' +
+    (d.cats.length ? '<div class="fl">어디에 썼나</div>' + d.cats.map((c) => '<div class="cat"><span>' + esc(c.name) + '</span><div class="b"><div style="width:' + Math.max(0, c.amt / max * 100) + '%"></div></div><span class="v num">' + man(c.amt) + '</span></div>').join('') : '') +
+    '<div class="fl">거래 <small>눌러서 이 여행에서 빼기</small></div><div id="tRows">' +
+    (d.rows.length ? d.rows.map((r) => '<div class="tx" data-trow="' + r.row + '" data-tym="' + r.ym + '"><div class="l"><div class="nm">' + esc(r.memo || r.cat || '-') + '</div>' +
+      '<div class="m">' + esc(r.date) + ' · ' + esc(r.cat) + (r.pay ? ' · ' + esc(r.pay) : '') + (r.gubun !== '변동' ? ' · ' + esc(r.gubun) : '') + '</div></div><div class="a num' + (r.gubun === '회사경비' ? ' co' : '') + '">' + num(r.amt) + '</div></div>').join('')
+      : '<div class="empty">아직 묶인 거래가 없어요</div>') + '</div>' +
+    '<div class="hint" style="margin-top:10px">항공권 · 숙소처럼 미리 낸 돈은 그 거래를 열어 \'여행\'에서 이 여행을 골라주세요.</div>' +
+    '<div class="sheet-acts"><button class="btn" id="tEdit">여행 정보 수정</button><button class="btn primary" id="tClose">닫기</button></div>';
+  openSheet(html);
+  $('tClose').onclick = closeSheet;
+  $('tEdit').onclick = () => tripEditSheet(t);
+  $('tRows').onclick = async (e) => {
+    const r = e.target.closest('[data-trow]'); if (!r) return;
+    if (!confirm('이 거래를 \'' + t.name + '\'에서 뺄까요? 거래 자체는 그대로 남아요.')) return;
+    try { await api('setTxTrip', r.dataset.tym, Number(r.dataset.trow), ''); toast('여행에서 뺐어요'); loadMonth(S.ym, true); tripSheet(t.name); } catch (err) { toast(err.message); }
+  };
+}
+function tripEditSheet(t) {
+  const isNew = !t; t = t || { name: '', start: '', end: '', memo: '' };
+  openSheet('<h2>' + (isNew ? '여행 추가' : '여행 정보 수정') + '</h2>' +
+    '<div class="fl">여행 이름</div><input class="inp" id="tN" value="' + esc(t.name) + '" placeholder="예: 싱가포르 신혼여행">' +
+    '<div class="fl">시작일</div><input class="inp" id="tS" type="date" value="' + esc(t.start) + '">' +
+    '<div class="fl">종료일</div><input class="inp" id="tE" type="date" value="' + esc(t.end) + '">' +
+    '<div class="fl">메모</div><input class="inp" id="tM" value="' + esc(t.memo) + '" placeholder="예: 풀러튼 베이 · 카펠라">' +
+    '<div class="hint" style="margin-top:10px">이 기간의 변동지출은 자동으로 이 여행에 묶여요. 예산 계산에서는 빠지지 않아요.</div>' +
+    '<div class="sheet-acts">' + (isNew ? '' : '<button class="btn danger" id="tDel">삭제</button>') + '<button class="btn" id="tC">취소</button><button class="btn primary" id="tOk">저장</button></div>');
+  $('tC').onclick = () => (isNew ? closeSheet() : tripSheet(t.name));
+  if ($('tDel')) $('tDel').onclick = async () => {
+    if (!confirm('\'' + t.name + '\' 여행을 지울까요? 거래는 그대로 남고 여행 묶음만 풀려요.')) return;
+    try { await api('deleteTrip', t.name); closeSheet(); toast('여행을 지웠어요'); loadMonth(S.ym, true); } catch (e) { toast(e.message); }
+  };
+  $('tOk').onclick = async () => {
+    const v = { name: $('tN').value.trim(), start: $('tS').value, end: $('tE').value, memo: $('tM').value.trim() };
+    if (!v.name) { toast('여행 이름을 적어주세요'); return; }
+    const b = $('tOk'); b.disabled = true; b.textContent = '저장 중…';
+    try { await api('saveTrip', v, isNew ? '' : t.name); toast('저장했어요'); loadMonth(S.ym, true); tripSheet(v.name); }
+    catch (e) { toast(e.message); b.disabled = false; b.textContent = '저장'; }
+  };
 }
 
 function numSheet(title, value, hint, onSave) {
@@ -827,8 +896,10 @@ function bind() {
       try { await bWrite('babyAddMemo', [t, ''], '메모를 남겼어요'); } catch (err) { e.target.disabled = false; }
       return;
     }
-    const el = e.target.closest('[data-ok],[data-edit],[data-cat],[data-go],[data-ym],[data-asset],[data-set],[data-led],[data-bview],[data-bcat],[data-bitem],[data-mact],[data-badd]');
+    const el = e.target.closest('[data-ok],[data-edit],[data-cat],[data-go],[data-ym],[data-asset],[data-set],[data-led],[data-bview],[data-bcat],[data-bitem],[data-mact],[data-badd],[data-trip],[data-tripadd]');
     if (!el || el.closest('#sheet')) return;
+    if (el.dataset.trip) { tripSheet(el.dataset.trip); return; }
+    if (el.dataset.tripadd) { tripEditSheet(null); return; }
     if (el.dataset.led) { S.led = el.dataset.led; window.scrollTo(0, 0); renderLedger(); return; }
     if (el.dataset.bview) { S.bview = el.dataset.bview; render(); return; }
     if (el.dataset.bcat) { S.bcat = el.dataset.bcat; render(); return; }
