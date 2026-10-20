@@ -2,7 +2,7 @@
  * 데이터는 구글 시트(Apps Script API)에 있고, 이 앱은 화면만 담당해요.
  * 열 때는 폰에 저장해 둔 마지막 화면을 바로 보여주고, 뒤에서 최신 데이터를 받아와요. */
 'use strict';
-const VERSION = '1.4.0';
+const VERSION = '1.4.1';
 const API = 'https://script.google.com/macros/s/AKfycbyxgtCCZJEixEnxgHr_g-XbBrFy4j7oqd0GTJ7GK29Z3okMu5Kk8JN_FBFjkBSBsMXkdg/exec';
 const SHEET_URL = 'https://docs.google.com/spreadsheets/d/1O9fVSgn2GEPlz2eURBd0J_kQzQH5vuwphPRmo1yAco4/edit';
 const GUBUN_ORDER = ['변동', '고정', '수입', '회사경비', '저축'];
@@ -1117,10 +1117,12 @@ function bellItems() {
     .forEach((m) => out.push({ k: 'memo', t: esc(m.by) + '님의 새 메모', d: esc(m.text.split('\n')[0]), go: 'memo', at: m.at }));
   const newPh = ((S.alb && S.alb.photos) || []).filter((p) => p.by && p.by !== me && p.at > seen);
   if (newPh.length) out.push({ k: 'photo', t: '새 사진 ' + newPh.length + '장', d: esc(newPh[0].by) + '님이 앨범에 올렸어요', go: 'album', at: newPh[0].at });
+  // 가격 소식: 최근 가격 확인(meta.updated)이 종을 마지막으로 연 뒤에 들어왔을 때만 새 알림으로
+  const upd = (S.baby && S.baby.meta && S.baby.meta.updated) || '', updT = upd ? new Date(upd).getTime() : 0, seenT = seen ? new Date(seen).getTime() : 0, updDay = upd.slice(0, 10);
   ((S.baby && S.baby.items) || []).forEach((i) => {
     const t = i.trend || []; if (t.length < 2) return;
     const ch = t[t.length - 1][1] - t[t.length - 2][1];
-    if (ch < 0 && (!seen || t[t.length - 1][0] > seen.slice(0, 10))) out.push({ k: 'price', t: '가격 내려감', d: esc(i.name.replace(/\s*\(.*\)$/, '')) + ' <b class="pdown nw">▼' + man(-ch) + '</b>', go: 'list', at: t[t.length - 1][0] });
+    if (ch < 0 && t[t.length - 1][0] >= updDay && (!seenT || updT > seenT)) out.push({ k: 'price', t: '가격 내려감', d: esc(i.name.replace(/\s*\(.*\)$/, '')) + ' <b class="pdown nw">▼' + man(-ch) + '</b>', go: 'list', at: t[t.length - 1][0] });
   });
   if (S.baby) bEvents().filter((e) => e.dd <= 3).forEach((e) => out.push({ k: 'event', t: e.dd <= 0 ? '행사 진행 중' : '행사 ' + e.tag, d: esc(e.name) + ' ' + esc(e.label), go: 'list', sticky: true }));
   return out;
