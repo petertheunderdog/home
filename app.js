@@ -2,7 +2,7 @@
  * 데이터는 구글 시트(Apps Script API)에 있고, 이 앱은 화면만 담당해요.
  * 열 때는 폰에 저장해 둔 마지막 화면을 바로 보여주고, 뒤에서 최신 데이터를 받아와요. */
 'use strict';
-const VERSION = '1.4.1';
+const VERSION = '1.4.2';
 const API = 'https://script.google.com/macros/s/AKfycbyxgtCCZJEixEnxgHr_g-XbBrFy4j7oqd0GTJ7GK29Z3okMu5Kk8JN_FBFjkBSBsMXkdg/exec';
 const SHEET_URL = 'https://docs.google.com/spreadsheets/d/1O9fVSgn2GEPlz2eURBd0J_kQzQH5vuwphPRmo1yAco4/edit';
 const GUBUN_ORDER = ['변동', '고정', '수입', '회사경비', '저축'];
@@ -270,7 +270,9 @@ function renderHome() {
     '</div>';
   if (S.baby) {
     const sm = bSummary(), ev = bEvents(), memos = (S.baby.memos || []).filter((m) => m.st === '열림');
-    const drops = sm.items.filter((i) => bChange(i) < 0);
+    // 가장 최근에 내려간 것부터, 같은 날이면 많이 내려간 순
+    const lastDay = (i) => { const t = i.trend || []; return t.length ? t[t.length - 1][0] : ''; };
+    const drops = sm.items.filter((i) => bChange(i) < 0).sort((a, b) => (lastDay(b) > lastDay(a) ? 1 : lastDay(b) < lastDay(a) ? -1 : bChange(a) - bChange(b)));
     const lines = [];
     if (drops.length) lines.push('<div class="hl1"><span class="k">가격</span><span class="hn">' + esc(drops[0].name.replace(/\s*\(.*\)$/, '')) + ' <b class="pdown">▼' + man(-bChange(drops[0])) + '</b>' + (drops.length > 1 ? ' 외 ' + (drops.length - 1) + '개' : '') + '</span></div>');
     if (ev.length) lines.push('<div class="hl1"><span class="k">행사</span><span class="hn">' + esc(ev[0].name) + ' ' + esc(ev[0].label) + '</span><b>' + esc(ev[0].tag) + '</b></div>');
