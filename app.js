@@ -2,7 +2,7 @@
  * 데이터는 구글 시트(Apps Script API)에 있고, 이 앱은 화면만 담당해요.
  * 열 때는 폰에 저장해 둔 마지막 화면을 바로 보여주고, 뒤에서 최신 데이터를 받아와요. */
 'use strict';
-const VERSION = '1.4.2';
+const VERSION = '1.4.3';
 const API = 'https://script.google.com/macros/s/AKfycbyxgtCCZJEixEnxgHr_g-XbBrFy4j7oqd0GTJ7GK29Z3okMu5Kk8JN_FBFjkBSBsMXkdg/exec';
 const SHEET_URL = 'https://docs.google.com/spreadsheets/d/1O9fVSgn2GEPlz2eURBd0J_kQzQH5vuwphPRmo1yAco4/edit';
 const GUBUN_ORDER = ['변동', '고정', '수입', '회사경비', '저축'];
@@ -222,6 +222,16 @@ function renderLedgerSum() {
       reviews.map((r) => '<div class="rv"><div style="min-width:0"><div class="nm">' + esc(r.memo || '-') + '</div>' +
         '<div class="m num">' + [esc(r.date), esc(r.pay || ''), won(r.amt), esc(r.gubun + '/' + r.cat)].filter(Boolean).map((x) => '<span class="nw">' + x + '</span>').join(' · ') + '</div></div>' +
         '<div class="acts"><button class="btn" data-edit="' + r.row + '">고치기</button><button class="btn primary" data-ok="' + r.row + '">맞아요</button></div></div>').join('') + '</div>';
+  }
+
+  const od = ov.overdue || [];
+  if (od.length) {
+    h += '<div class="card" id="odCard"><h3 class="sec">확정 필요 <small>날짜 지난 예정 ' + od.length + '건</small></h3>' +
+      od.map((r) => '<div class="rv"><div style="min-width:0"><div class="nm">' + esc(r.memo || '-') + '</div>' +
+        '<div class="m num">' + [esc(r.iso.slice(5).replace('-', '/')), esc(r.pay || ''), won(r.amt), esc(r.gubun + '/' + r.cat)].filter(Boolean).map((x) => '<span class="nw">' + x + '</span>').join(' · ') + '</div></div>' +
+        '<div class="acts">' + (r.ym === d.month ? '<button class="btn" data-edit="' + r.row + '">고치기</button>' : '<button class="btn" data-ym="' + esc(r.ym) + '">' + Number(r.ym.slice(5)) + '월 보기</button>') +
+        '<button class="btn primary" data-okp="' + r.row + '">나갔어요</button></div></div>').join('') +
+      '<div class="lab" style="margin-top:8px"><span class="nw">계좌이체는 문자가 없어서 직접 확인해요.</span> <span class="nw">실제로 나갔으면 "나갔어요",</span> <span class="nw">금액이 다르거나 안 나갔으면 "고치기"</span></div></div>';
   }
 
   if (d.cats && d.cats.length) {
@@ -1114,6 +1124,9 @@ function bellItems() {
   const cur = (S.data && S.data.month === ymOf(new Date())) ? S.data : readJ('gb.m.' + ymOf(new Date()));
   const reviews = cur ? (cur.rows || []).filter((r) => r.review) : [];
   reviews.forEach((r) => out.push({ k: 'rev', sticky: true, t: '확인 필요 거래', d: [esc(r.date), esc(r.memo || '-'), won(r.amt)].map((x) => '<span class="nw">' + x + '</span>').join(' · '), go: 'txrev' }));
+  // 날짜가 지났는데 아직 '예정'인 계좌이체 고정지출 → 확정할 때까지 남아 있음
+  const ovx = (S.data && S.data.ov) || (cur && cur.ov) || {};
+  (ovx.overdue || []).forEach((r) => out.push({ k: 'plan', sticky: true, t: '확정 필요 · 날짜 지난 예정', d: [esc(r.iso.slice(5).replace('-', '/')), esc(r.memo || r.cat || '-'), won(r.amt)].map((x) => '<span class="nw">' + x + '</span>').join(' · '), go: 'plan' }));
   const me = (S.baby && S.baby.me) || '';
   ((S.baby && S.baby.memos) || []).filter((m) => m.st === '열림' && m.by !== me && m.at > seen)
     .forEach((m) => out.push({ k: 'memo', t: esc(m.by) + '님의 새 메모', d: esc(m.text.split('\n')[0]), go: 'memo', at: m.at }));
@@ -1137,7 +1150,7 @@ function renderBell() {
 }
 function bellSheet() {
   const items = bellItems();
-  const ICO = { rev: '!', memo: '✎', photo: '▣', price: '↓', event: '◷' };
+  const ICO = { rev: '!', plan: '✓', memo: '✎', photo: '▣', price: '↓', event: '◷' };
   openSheet('<h2>알림</h2>' + (items.length ? '<div class="bl">' + items.map((it, i) =>
     '<button class="bli ' + it.k + '" data-bl="' + i + '"><span class="bi">' + ICO[it.k] + '</span><span class="bt"><b>' + it.t + '</b><small>' + it.d + '</small></span><span class="chev">›</span></button>').join('') + '</div>'
     : '<div class="empty">새 알림이 없어요</div>') +
@@ -1148,6 +1161,7 @@ function bellSheet() {
     const el = e.target.closest('[data-bl]'); if (!el) return;
     const it = items[Number(el.dataset.bl)]; closeSheet(); $('sheet').onclick = null;
     if (it.go === 'txrev') { S.led = 'list'; S.filter = 'review'; S.cat = ''; go('tx'); }
+    else if (it.go === 'plan') { S.led = 'sum'; go('tx'); setTimeout(() => { const c = $('odCard'); if (c) c.scrollIntoView({ block: 'center', behavior: 'smooth' }); }, 350); }
     else { S.bview = it.go; go('baby'); }
   };
 }
@@ -1183,7 +1197,7 @@ function bind() {
       try { await bWrite('babyAddMemo', [t, ''], '메모를 남겼어요'); } catch (err) { e.target.disabled = false; }
       return;
     }
-    const el = e.target.closest('[data-ok],[data-edit],[data-cat],[data-go],[data-ym],[data-asset],[data-set],[data-led],[data-bview],[data-bcat],[data-bitem],[data-mact],[data-badd],[data-trip],[data-tripadd],[data-amode],[data-aup],[data-aday],[data-amon],[data-aph],[data-amore]');
+    const el = e.target.closest('[data-ok],[data-okp],[data-edit],[data-cat],[data-go],[data-ym],[data-asset],[data-set],[data-led],[data-bview],[data-bcat],[data-bitem],[data-mact],[data-badd],[data-trip],[data-tripadd],[data-amode],[data-aup],[data-aday],[data-amon],[data-aph],[data-amore]');
     if (!el || el.closest('#sheet')) return;
     if (el.dataset.trip) { tripSheet(el.dataset.trip); return; }
     if (el.dataset.tripadd) { tripEditSheet(null); return; }
@@ -1203,6 +1217,7 @@ function bind() {
     if (el.dataset.go === 'txrev') { S.led = 'list'; S.filter = 'review'; S.cat = ''; go('tx'); return; }
     if (el.dataset.go && el.dataset.led2) { S.led = el.dataset.led2; }
     if (el.dataset.go && el.dataset.bv) { S.bview = el.dataset.bv; }
+    if (el.dataset.okp) { el.disabled = true; await write('confirmTx', [S.ym, Number(el.dataset.okp)], '확정했어요'); return; }
     if (el.dataset.ok) { el.disabled = true; await write('confirmTx', [S.ym, Number(el.dataset.ok)], '확인했어요 · 다음부터 자동 분류'); return; }
     if (el.dataset.edit) { const r = findRow(el.dataset.edit); if (r) txSheet(r); return; }
     if (el.dataset.cat) { S.cat = el.dataset.cat; S.filter = 'all'; S.led = 'list'; go('tx'); return; }
