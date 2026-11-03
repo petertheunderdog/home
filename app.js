@@ -2,7 +2,7 @@
  * 데이터는 구글 시트(Apps Script API)에 있고, 이 앱은 화면만 담당해요.
  * 열 때는 폰에 저장해 둔 마지막 화면을 바로 보여주고, 뒤에서 최신 데이터를 받아와요. */
 'use strict';
-const VERSION = '1.4.3';
+const VERSION = '1.4.4';
 const API = 'https://script.google.com/macros/s/AKfycbyxgtCCZJEixEnxgHr_g-XbBrFy4j7oqd0GTJ7GK29Z3okMu5Kk8JN_FBFjkBSBsMXkdg/exec';
 const SHEET_URL = 'https://docs.google.com/spreadsheets/d/1O9fVSgn2GEPlz2eURBd0J_kQzQH5vuwphPRmo1yAco4/edit';
 const GUBUN_ORDER = ['변동', '고정', '수입', '회사경비', '저축'];
@@ -779,12 +779,12 @@ function bMemoView(memos) {
   h += memos.map((m) => {
     const it = m.item ? nameOf(m.item) : '';
     const st = m.st === '반영됨' ? '<span class="tag auto">목록에 추가됨</span>' : m.st === '완료' ? '<span class="tag pl">완료</span>' : '';
-    return '<div class="card memo' + (m.st !== '열림' ? ' closed' : '') + '"><div class="mh">' + bWhoChip(m.by) + '<span class="mt">' + esc(ago(m.at)) + '</span>' + st + '</div>' +
+    return '<div class="card memo' + (m.st !== '열림' ? ' closed' : '') + '"><div class="mh">' + bWhoChip(m.by) + '<span class="mt">' + esc(ago(m.at)) + (m.edited ? ' · ' + (m.editedBy && m.editedBy !== m.by ? esc(m.editedBy) + ' ' : '') + '수정' : '') + '</span>' + st + '</div>' +
       '<div class="mx">' + esc(m.text).replace(/\n/g, '<br>') + '</div>' +
       (it ? '<div class="mi" data-bitem="' + esc(m.item) + '">관련: ' + esc(it) + ' ›</div>' : '') +
       '<div class="ma">' + (m.st === '열림' ? '<button class="btn" data-mact="add" data-mid="' + esc(m.id) + '">목록에 추가</button><button class="btn" data-mact="done" data-mid="' + esc(m.id) + '">완료</button>' :
         '<button class="btn" data-mact="open" data-mid="' + esc(m.id) + '">다시 열기</button>') +
-      '<button class="btn ghost" data-mact="del" data-mid="' + esc(m.id) + '">삭제</button></div></div>';
+      '<button class="btn" data-mact="edit" data-mid="' + esc(m.id) + '">수정</button><button class="btn ghost" data-mact="del" data-mid="' + esc(m.id) + '">삭제</button></div></div>';
   }).join('');
   return h;
 }
@@ -799,7 +799,7 @@ function bItemSheet(id) {
     '<div class="fl">상태</div><div class="seg" id="iSt">' + B_STATUS.map((s) => '<button data-s="' + s + '" class="' + (st.status === s ? 'on' : '') + '">' + s + '</button>').join('') + '</div>' +
     '<div id="iPaidW"' + (st.status === '구매 완료' ? '' : ' hidden') + '><div class="fl">실제 결제 금액</div><input class="inp num" id="iPaid" inputmode="numeric" placeholder="₩0" value="' + (it.paid ? won(it.paid) : '') + '"></div>' +
     '<div class="fl">메모 · 의견 ' + (memos.length ? memos.length + '개' : '') + '</div>' +
-    (memos.length ? '<div class="imemos">' + memos.map((m) => '<div class="im">' + bWhoChip(m.by) + '<span>' + esc(m.text) + '</span><span class="mt">' + esc(ago(m.at)) + '</span></div>').join('') + '</div>' : '') +
+    (memos.length ? '<div class="imemos">' + memos.map((m) => '<div class="im">' + bWhoChip(m.by) + '<span>' + esc(m.text) + '</span><span class="mt">' + esc(ago(m.at)) + (m.edited ? ' · 수정' : '') + '</span><span class="mt" style="margin-left:auto;text-decoration:underline;cursor:pointer" data-mact="edit" data-mid="' + esc(m.id) + '">수정</span></div>').join('') + '</div>' : '') +
     '<div class="irow"><input class="inp" id="iMemo" placeholder="이 품목에 대한 의견 남기기"><button class="btn" id="iMemoBtn">남기기</button></div>' +
     '<details class="iedit"><summary>이름 · 카테고리 · 기준가 고치기</summary>' +
     '<div class="fl">이름</div><input class="inp" id="iName" value="' + esc(it.name) + '">' +
@@ -891,9 +891,24 @@ function dueSheet() {
   $('dS').onclick = async () => { $('dS').disabled = true; try { await bWrite('babySetMeta', [{ dueDate: $('dD').value }], '저장했어요'); closeSheet(); if (S.tab === 'set') render(); } catch (e) { $('dS').disabled = false; } };
 }
 
+function bMemoEditSheet(m) {
+  openSheet('<h2>메모 수정</h2><div class="lab" style="margin:-6px 0 10px">' + esc(m.by || '') + ' · ' + esc(ago(m.at)) + ' 작성 · 누구나 고칠 수 있어요</div>' +
+    '<textarea class="inp" id="meTxt" rows="5" style="width:100%;resize:vertical"></textarea>' +
+    '<div class="sheet-acts"><button class="btn" id="meC">취소</button><button class="btn primary" id="meS">저장</button></div>');
+  $('meTxt').value = m.text;
+  $('meC').onclick = closeSheet;
+  $('meS').onclick = async () => {
+    const t = $('meTxt').value.trim(); if (!t) { toast('내용을 적어주세요'); return; }
+    if (t === m.text) { closeSheet(); return; }
+    $('meS').disabled = true;
+    try { await bWrite('babyMemoEdit', [m.id, t], '메모를 고쳤어요'); closeSheet(); } catch (e) { $('meS').disabled = false; }
+  };
+}
+
 async function bMemoAct(act, id) {
   const m = (S.baby.memos || []).find((x) => x.id === id); if (!m) return;
   if (act === 'add') { bAddSheet({ memo: id, memoText: m.text, name: m.text.split('\n')[0].slice(0, 40) }); return; }
+  if (act === 'edit') { bMemoEditSheet(m); return; }
   if (act === 'del' && !confirm('이 메모를 지울까요?')) return;
   const st = { done: '완료', open: '열림', del: '삭제' }[act];
   await bWrite('babyMemoSet', [id, st], act === 'del' ? '지웠어요' : act === 'done' ? '완료로 표시했어요' : '다시 열었어요');
